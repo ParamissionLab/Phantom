@@ -1,6 +1,6 @@
 {
   "name": "@paramission-lab/phantom",
-  "version": "1.0.1",
+  "version": "1.0.0",
   "description": "Tile-first extreme resolution RGBA image processing for browser, workers, WebGPU, and Zig WASM.",
   "author": {
     "name": "Paramission Lab",
@@ -38,10 +38,6 @@
     "./ai": {
       "types": "./dist/ai/index.d.ts",
       "import": "./dist/ai/index.js"
-    },
-    "./browser": {
-      "types": "./dist/browser/index.d.ts",
-      "import": "./dist/browser/index.js"
     }
   },
   "files": [
@@ -61,8 +57,7 @@
     "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
-    "clean": "node --input-type=module -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true });\"",
-    "build": "npm run clean && tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json",
     "prepare": "npm run build",
     "prepublishOnly": "npm run ci && npm run demo:build",
     "build:wasm": "zig build-exe zig/src/kernel.zig -target wasm32-freestanding -fno-entry -rdynamic -O ReleaseFast -femit-bin=dist/phantom_kernel.wasm",

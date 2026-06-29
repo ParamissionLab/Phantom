@@ -4,10 +4,10 @@ import {
   chooseTileSize,
   describeProcessingPlan,
   detectCapabilities,
-  DEFAULT_ALPHA_MASK_REFINEMENT_OPTIONS,
   getPixelFilterOverlap,
   listPixelFilters,
   planTiles,
+  removeBackground,
   RGBA_CHANNELS,
   type PixelFilter,
   type AlphaMask,
@@ -19,28 +19,21 @@ import {
   type AiBackend,
   type AiProgress,
 } from "../../src/ai/index.js";
-import {
-  convertImageFormat,
-  imageFormatExtension,
-  smartExportImage,
-  type BrowserImageFormat,
-} from "../../src/browser/index.js";
 import "./styles.css";
 
 type ResolutionKey = "16k" | "32k" | "64k";
 type OperationMode = "enhance" | "removeBackground";
-type DemoExportFormat = "auto" | BrowserImageFormat;
+type BackgroundEngine = "ai" | "fuzzy";
 
 interface DemoState {
   resolution: ResolutionKey;
   operation: OperationMode;
   filter: PixelFilter;
-  maskThreshold: number;
-  maskSoftness: number;
-  maskFeather: number;
-  maskEdgeSensitivity: number;
-  exportFormat: DemoExportFormat;
-  exportQuality: number;
+  backgroundThreshold: number;
+  backgroundSoftness: number;
+  backgroundFeather: number;
+  foregroundGuard: number;
+  backgroundEngine: BackgroundEngine;
   memoryMb: number;
   slider: number;
   runningToken: number;
@@ -64,12 +57,11 @@ const state: DemoState = {
   resolution: "32k",
   operation: "enhance",
   filter: "smoothEnhance",
-  maskThreshold: DEFAULT_ALPHA_MASK_REFINEMENT_OPTIONS.threshold,
-  maskSoftness: DEFAULT_ALPHA_MASK_REFINEMENT_OPTIONS.softness,
-  maskFeather: DEFAULT_ALPHA_MASK_REFINEMENT_OPTIONS.featherRadius,
-  maskEdgeSensitivity: DEFAULT_ALPHA_MASK_REFINEMENT_OPTIONS.edgeSensitivity,
-  exportFormat: "auto",
-  exportQuality: 0.86,
+  backgroundThreshold: 38,
+  backgroundSoftness: 54,
+  backgroundFeather: 2,
+  foregroundGuard: 70,
+  backgroundEngine: "ai",
   memoryMb: 64,
   slider: 52,
   runningToken: 0,
@@ -81,49 +73,17 @@ const demoFilters = listPixelFilters().filter(
 );
 const featureRows = [
   [
-    "Streaming & ring buffer",
-    "Fixed-capacity ingestion plus bounded raw tile sources and sinks",
+    "Fixed stream memory",
+    "64 MB ring-buffer ingestion instead of full-frame allocation",
   ],
+  ["Overlap-safe tiles", "Kernel radius metadata prevents hard tile borders"],
+  ["CPU fallback", "Deterministic fixed-point TypeScript kernels"],
+  ["Zig WASM", "Tile API exports for accelerated browser/runtime kernels"],
+  ["WebGPU", "Compute shader backend for parallel RGBA filters"],
+  ["Workers", "Transferable tile payloads and SharedArrayBuffer helper"],
   [
-    "Tiling & memory planning",
-    "Overlap-safe tile plans, scratch estimates, and automatic tile sizing",
-  ],
-  [
-    "CPU filters",
-    "Deterministic fixed-point identity, invert, grayscale, enhance, and sharpen kernels",
-  ],
-  [
-    "Pipelines & telemetry",
-    "Single or multi-filter processing with progress callbacks and runtime stats",
-  ],
-  ["Image utilities", "Create, clone, crop, and resize raw RGBA images"],
-  [
-    "Mask compositing",
-    "Resize, refine, apply, and flatten provider-generated alpha masks",
-  ],
-  [
-    "AI background removal",
-    "Cached WebGPU or WASM subject masks with stable shared refinement defaults",
-  ],
-  [
-    "Browser conversion",
-    "Convert Blob, URL, Canvas, ImageData, or RGBA to PNG, JPEG, and WebP",
-  ],
-  [
-    "Adaptive export",
-    "Choose a safe format from alpha, color complexity, and edge analysis",
-  ],
-  [
-    "Workers & shared memory",
-    "Transferable tile jobs, reusable worker pools, and shared tile buffers",
-  ],
-  [
-    "GPU compute & rendering",
-    "WebGPU compute plus WebGPU and WebGL RGBA renderers",
-  ],
-  [
-    "Zig WebAssembly",
-    "Accelerated filter kernels and native alpha-mask compositing adapter",
+    "Background removal",
+    "AI subject matte plus a fuzzy edge-connected fallback and transparent PNG export",
   ],
 ];
 
@@ -146,9 +106,9 @@ app.innerHTML = `
     <header class="border-b border-zinc-200 bg-white/90 px-5 py-4 backdrop-blur">
       <div class="mx-auto flex max-w-[1600px] flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <p class="text-xs font-bold uppercase tracking-[0.18em] text-emerald-700">Phantom SDK 1.0.1 demo</p>
+          <p class="text-xs font-bold uppercase tracking-[0.18em] text-emerald-700">Phantom SDK demo</p>
           <h1 class="mt-1 text-3xl font-semibold tracking-normal text-zinc-950">Image Studio for 32K / 64K files</h1>
-          <p class="mt-1 max-w-2xl text-sm leading-6 text-zinc-600">Upload a real image, remove its background with the cached AI model, preview tile-safe enhancement, and inspect the SDK's current processing surfaces.</p>
+          <p class="mt-1 max-w-2xl text-sm leading-6 text-zinc-600">Upload a real image, remove plain backgrounds, preview tile-safe enhancement, and inspect every SDK layer from filters to memory planning.</p>
         </div>
         <div class="flex flex-wrap gap-2">
           <label class="inline-flex min-h-10 cursor-pointer items-center rounded-md border border-zinc-300 bg-white px-4 text-sm font-semibold hover:border-emerald-700" for="upload">Import image</label>
@@ -200,32 +160,29 @@ app.innerHTML = `
           <label for="memory" class="mt-4 block text-xs font-bold uppercase tracking-[0.16em] text-zinc-500">Memory lane <strong id="memoryLabel" class="text-emerald-700">64 MB</strong></label>
           <input id="memory" class="mt-3 w-full accent-emerald-700" min="16" max="256" step="16" type="range" value="64" />
 
-          <label for="exportFormat" class="mt-4 block text-xs font-bold uppercase tracking-[0.16em] text-zinc-500">Export format</label>
-          <select id="exportFormat" class="mt-3 min-h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm">
-            <option value="auto" selected>Adaptive (recommended)</option>
-            <option value="image/png">PNG — lossless + alpha</option>
-            <option value="image/jpeg">JPEG — compatible photo</option>
-            <option value="image/webp">WebP — compact photo</option>
-          </select>
-          <label for="exportQuality" class="mt-4 block text-xs font-bold uppercase tracking-[0.16em] text-zinc-500">Lossy quality <strong id="exportQualityLabel" class="text-emerald-700">86%</strong></label>
-          <input id="exportQuality" class="mt-3 w-full accent-emerald-700" min="50" max="100" step="1" type="range" value="86" />
-
-          <div class="mt-4 rounded-md border border-emerald-200 bg-emerald-50 p-3">
-            <strong class="block text-sm text-emerald-900">AI Subject model</strong>
-            <span class="mt-1 block text-xs leading-5 text-emerald-800">Preloads on startup, prefers WebGPU, falls back to WASM, and reuses the cached pipeline.</span>
+          <span class="mt-4 block text-xs font-bold uppercase tracking-[0.16em] text-zinc-500">Mask engine</span>
+          <div class="mt-3 grid grid-cols-2 rounded-md border border-zinc-300 bg-zinc-100 p-1" role="group" aria-label="Background removal engine">
+            <button data-mask-mode="ai" class="mask-mode active min-h-10 rounded-sm px-3 text-left text-sm font-semibold">
+              <span class="block">AI Subject</span>
+              <span class="block text-xs font-medium opacity-65">people & objects</span>
+            </button>
+            <button data-mask-mode="fuzzy" class="mask-mode min-h-10 rounded-sm px-3 text-left text-sm font-semibold">
+              <span class="block">Fast Fuzzy</span>
+              <span class="block text-xs font-medium opacity-65">plain backdrop</span>
+            </button>
           </div>
 
-          <label for="threshold" class="mt-4 block text-xs font-bold uppercase tracking-[0.16em] text-zinc-500">Mask cutoff <strong id="thresholdLabel" class="text-emerald-700">${state.maskThreshold}</strong></label>
-          <input id="threshold" class="mt-3 w-full accent-emerald-700" min="0" max="64" step="1" type="range" value="${state.maskThreshold}" />
+          <label for="threshold" class="mt-4 block text-xs font-bold uppercase tracking-[0.16em] text-zinc-500">Background strength <strong id="thresholdLabel" class="text-emerald-700">38</strong></label>
+          <input id="threshold" class="mt-3 w-full accent-emerald-700" min="8" max="96" step="1" type="range" value="38" />
 
-          <label for="softness" class="mt-4 block text-xs font-bold uppercase tracking-[0.16em] text-zinc-500">Mask softness <strong id="softnessLabel" class="text-emerald-700">${state.maskSoftness}</strong></label>
-          <input id="softness" class="mt-3 w-full accent-emerald-700" min="0" max="96" step="1" type="range" value="${state.maskSoftness}" />
+          <label for="softness" class="mt-4 block text-xs font-bold uppercase tracking-[0.16em] text-zinc-500">Fuzzy softness <strong id="softnessLabel" class="text-emerald-700">54</strong></label>
+          <input id="softness" class="mt-3 w-full accent-emerald-700" min="0" max="96" step="1" type="range" value="54" />
 
           <div class="mt-4 grid grid-cols-2 gap-3">
-            <label for="feather" class="block text-xs font-bold uppercase tracking-[0.14em] text-zinc-500">Feather <strong id="featherLabel" class="text-emerald-700">${state.maskFeather} px</strong></label>
-            <label for="guard" class="block text-xs font-bold uppercase tracking-[0.14em] text-zinc-500">Edge sensitivity <strong id="guardLabel" class="text-emerald-700">${state.maskEdgeSensitivity}</strong></label>
-            <input id="feather" class="w-full accent-emerald-700" min="0" max="4" step="1" type="range" value="${state.maskFeather}" />
-            <input id="guard" class="w-full accent-emerald-700" min="8" max="128" step="1" type="range" value="${state.maskEdgeSensitivity}" />
+            <label for="feather" class="block text-xs font-bold uppercase tracking-[0.14em] text-zinc-500">Feather <strong id="featherLabel" class="text-emerald-700">2 px</strong></label>
+            <label for="guard" class="block text-xs font-bold uppercase tracking-[0.14em] text-zinc-500">Subject guard <strong id="guardLabel" class="text-emerald-700">70%</strong></label>
+            <input id="feather" class="w-full accent-emerald-700" min="0" max="4" step="1" type="range" value="2" />
+            <input id="guard" class="w-full accent-emerald-700" min="30" max="90" step="1" type="range" value="70" />
           </div>
 
           <button class="mt-4 min-h-11 w-full rounded-md bg-emerald-700 px-4 text-sm font-bold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-50" id="enhance" disabled>Run workflow</button>
@@ -240,8 +197,6 @@ app.innerHTML = `
           ${metricRow("Mask engine", "maskEngine", "-")}
           ${metricRow("Model state", "modelState", "Not loaded")}
           ${metricRow("Removed pixels", "removedPixels", "-")}
-          ${metricRow("Last export", "exportInfo", "-")}
-          ${metricRow("Export decision", "exportDecision", "-")}
         </section>
       </aside>
 
@@ -270,7 +225,7 @@ app.innerHTML = `
           <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
             <div>
               <h2 class="text-lg font-semibold text-zinc-950">SDK feature surface</h2>
-              <p class="text-sm text-zinc-600">The interactive workflow exercises filters, planning, AI masks, compositing, and export; these cards cover every current package entry point and major root API group.</p>
+              <p class="text-sm text-zinc-600">The demo exercises the same public APIs that consumers import from the SDK.</p>
             </div>
             <span class="rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700" id="backendProfile"></span>
           </div>
@@ -320,15 +275,14 @@ app.innerHTML = `
         <section class="rounded-lg border border-zinc-200 bg-zinc-950 p-4 text-zinc-100">
           <h2 class="text-lg font-semibold">Use the SDK</h2>
   <pre class="mt-3 overflow-auto rounded-md bg-black/40 p-3 text-xs leading-5 text-emerald-100"><code>import {
-  processRawImageWithStats,
-  applyAlphaMask,
+  processRawImage,
+  removeBackground,
+  estimateBackgroundPalette,
   describeProcessingPlan,
   listPixelFilters
 } from "@paramission-lab/phantom";
 import { createPhantomAi }
-  from "@paramission-lab/phantom/ai";
-import { smartExportImage }
-  from "@paramission-lab/phantom/browser";</code></pre>
+  from "@paramission-lab/phantom/ai";</code></pre>
         </section>
       </aside>
     </section>
@@ -347,7 +301,6 @@ renderCapabilities();
 updateOperationUi();
 applySplit();
 setImageControls(false);
-startAiPreload();
 window.addEventListener("pagehide", () => {
   void phantomAi.dispose();
 });
@@ -360,10 +313,29 @@ function bindControls(): void {
       state.operation = button.dataset.operation as OperationMode;
       updateOperationUi();
       renderPlan();
-      if (state.operation === "removeBackground") {
+      if (
+        state.operation === "removeBackground" &&
+        state.backgroundEngine === "ai"
+      ) {
         startAiPreload();
       }
       if (sourceImage !== undefined) {
+        void runCurrentOperation();
+      }
+    });
+  }
+
+  for (const button of document.querySelectorAll<HTMLButtonElement>(
+    "[data-mask-mode]",
+  )) {
+    button.addEventListener("click", () => {
+      state.backgroundEngine = button.dataset.maskMode as BackgroundEngine;
+      updateOperationUi();
+      renderPlan();
+      if (state.backgroundEngine === "ai") {
+        startAiPreload();
+      }
+      if (state.operation === "removeBackground" && sourceImage !== undefined) {
         void runCurrentOperation();
       }
     });
@@ -398,11 +370,11 @@ function bindControls(): void {
   requireElement<HTMLInputElement>("threshold").addEventListener(
     "input",
     (event) => {
-      state.maskThreshold = Number(
+      state.backgroundThreshold = Number(
         (event.currentTarget as HTMLInputElement).value,
       );
       requireElement("thresholdLabel").textContent =
-        state.maskThreshold.toString();
+        state.backgroundThreshold.toString();
       if (state.operation === "removeBackground" && sourceImage !== undefined) {
         void runCurrentOperation();
       }
@@ -412,11 +384,11 @@ function bindControls(): void {
   requireElement<HTMLInputElement>("softness").addEventListener(
     "input",
     (event) => {
-      state.maskSoftness = Number(
+      state.backgroundSoftness = Number(
         (event.currentTarget as HTMLInputElement).value,
       );
       requireElement("softnessLabel").textContent =
-        state.maskSoftness.toString();
+        state.backgroundSoftness.toString();
       if (state.operation === "removeBackground" && sourceImage !== undefined) {
         void runCurrentOperation();
       }
@@ -426,10 +398,11 @@ function bindControls(): void {
   requireElement<HTMLInputElement>("feather").addEventListener(
     "input",
     (event) => {
-      state.maskFeather = Number(
+      state.backgroundFeather = Number(
         (event.currentTarget as HTMLInputElement).value,
       );
-      requireElement("featherLabel").textContent = `${state.maskFeather} px`;
+      requireElement("featherLabel").textContent =
+        `${state.backgroundFeather} px`;
       if (state.operation === "removeBackground" && sourceImage !== undefined) {
         void runCurrentOperation();
       }
@@ -439,11 +412,10 @@ function bindControls(): void {
   requireElement<HTMLInputElement>("guard").addEventListener(
     "input",
     (event) => {
-      state.maskEdgeSensitivity = Number(
+      state.foregroundGuard = Number(
         (event.currentTarget as HTMLInputElement).value,
       );
-      requireElement("guardLabel").textContent =
-        state.maskEdgeSensitivity.toString();
+      requireElement("guardLabel").textContent = `${state.foregroundGuard}%`;
       if (state.operation === "removeBackground" && sourceImage !== undefined) {
         void runCurrentOperation();
       }
@@ -456,24 +428,6 @@ function bindControls(): void {
       state.memoryMb = Number((event.currentTarget as HTMLInputElement).value);
       requireElement("memoryLabel").textContent = `${state.memoryMb} MB`;
       renderPlan();
-    },
-  );
-
-  requireElement<HTMLSelectElement>("exportFormat").addEventListener(
-    "change",
-    (event) => {
-      state.exportFormat = (event.currentTarget as HTMLSelectElement)
-        .value as DemoExportFormat;
-    },
-  );
-
-  requireElement<HTMLInputElement>("exportQuality").addEventListener(
-    "input",
-    (event) => {
-      state.exportQuality =
-        Number((event.currentTarget as HTMLInputElement).value) / 100;
-      requireElement("exportQualityLabel").textContent =
-        `${Math.round(state.exportQuality * 100)}%`;
     },
   );
 
@@ -490,7 +444,7 @@ function bindControls(): void {
   });
 
   requireElement("export").addEventListener("click", () => {
-    void exportPreview();
+    exportPreview();
   });
 
   requireElement<HTMLInputElement>("upload").addEventListener(
@@ -550,7 +504,7 @@ function renderPlan(): void {
     `${stats.memoryReductionRatio.toFixed(1)}x`;
   requireElement("backendProfile").textContent =
     state.operation === "removeBackground"
-      ? `AI subject • ${stats.tileSize}px mask tiles • cached model`
+      ? `${state.backgroundEngine === "ai" ? "AI subject" : "fast fuzzy"} • ${stats.tileSize}px mask tiles • soft alpha`
       : `${stats.filter} • ${stats.tileSize}px tiles • ${stats.overlap}px overlap`;
 }
 
@@ -666,7 +620,42 @@ async function removeBackgroundPreview(
     return;
   }
 
-  await removeBackgroundWithAi(cropped, bounds, token, started);
+  if (state.backgroundEngine === "ai") {
+    await removeBackgroundWithAi(cropped, bounds, token, started);
+    return;
+  }
+
+  const result = removeBackground(
+    {
+      width: bounds.width,
+      height: bounds.height,
+      data: cropped,
+    },
+    {
+      threshold: state.backgroundThreshold,
+      softness: state.backgroundSoftness,
+      edgeSampleSize: Math.min(12, bounds.width, bounds.height),
+      colorClusters: 5,
+      edgeSensitivity: 46,
+      featherRadius: state.backgroundFeather,
+      foregroundBias: state.foregroundGuard / 100,
+      mode: "fuzzy",
+      preserveShadows: true,
+    },
+  );
+  const output = new ImageData(PREVIEW_WIDTH, PREVIEW_HEIGHT);
+  writeImageRect(output, bounds, result.data);
+  enhancedImage = output;
+  paintImageWithCheckerboard(output);
+  updateMaskProgress(
+    result.removedPixels,
+    bounds.width * bounds.height,
+    started,
+    cropped.byteLength + result.data.byteLength,
+  );
+  requireElement("maskEngine").textContent =
+    `${result.diagnostics.mode} • ${result.diagnostics.palette.length} colors`;
+  requireElement("modelState").textContent = "Local deterministic";
 }
 
 async function removeBackgroundWithAi(
@@ -684,10 +673,10 @@ async function removeBackgroundWithAi(
     { width: bounds.width, height: bounds.height, data: cropped },
     mask,
     {
-      threshold: state.maskThreshold,
-      softness: state.maskSoftness,
-      featherRadius: state.maskFeather,
-      edgeSensitivity: state.maskEdgeSensitivity,
+      threshold: Math.max(0, state.backgroundThreshold - 32),
+      softness: state.backgroundSoftness,
+      featherRadius: state.backgroundFeather,
+      edgeSensitivity: 34 + state.foregroundGuard * 0.35,
     },
   );
   const output = new ImageData(PREVIEW_WIDTH, PREVIEW_HEIGHT);
@@ -837,7 +826,10 @@ async function loadImageFile(file: File): Promise<void> {
   semanticMask = undefined;
   semanticMaskPromise = undefined;
   requireElement("status").textContent = "Loading";
-  if (state.operation === "removeBackground") {
+  if (
+    state.operation === "removeBackground" &&
+    state.backgroundEngine === "ai"
+  ) {
     startAiPreload();
   }
   const bitmap = await createImageBitmap(file);
@@ -885,42 +877,21 @@ async function loadImageFile(file: File): Promise<void> {
   void runCurrentOperation();
 }
 
-async function exportPreview(): Promise<void> {
+function exportPreview(): void {
   if (enhancedImage === undefined) {
     return;
   }
-  requireElement("status").textContent = "Exporting";
 
-  try {
-    const result =
-      state.exportFormat === "auto"
-        ? await smartExportImage(enhancedImage, {
-            strategy: "balanced",
-            quality: state.exportQuality,
-          })
-        : await convertImageFormat(enhancedImage, {
-            format: state.exportFormat,
-            quality: state.exportQuality,
-          });
-    const extension = imageFormatExtension(result.format);
-    const url = URL.createObjectURL(result.blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `phantom-${operationSlug()}-${resolutions[state.resolution].label.replaceAll(" ", "-").toLowerCase()}.${extension}`;
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 0);
+  const exportCanvas = document.createElement("canvas");
+  exportCanvas.width = enhancedImage.width;
+  exportCanvas.height = enhancedImage.height;
+  const exportContext = require2dContext(exportCanvas, true);
+  exportContext.putImageData(enhancedImage, 0, 0);
 
-    requireElement("exportInfo").textContent =
-      `${extension.toUpperCase()} • ${formatBytes(result.bytes)}${result.fallbackUsed ? " • fallback" : ""}`;
-    requireElement("exportDecision").textContent =
-      "reason" in result && typeof result.reason === "string"
-        ? result.reason
-        : "Manual format selection";
-    requireElement("status").textContent = "Exported";
-  } catch (error: unknown) {
-    requireElement("status").textContent = "Export failed";
-    requireElement("exportInfo").textContent = readableError(error);
-  }
+  const link = document.createElement("a");
+  link.href = exportCanvas.toDataURL("image/png");
+  link.download = `phantom-${operationSlug()}-${resolutions[state.resolution].label.replaceAll(" ", "-").toLowerCase()}.png`;
+  link.click();
 }
 
 function applySplit(): void {
@@ -981,6 +952,19 @@ function updateOperationUi(): void {
     );
   }
 
+  for (const option of document.querySelectorAll<HTMLButtonElement>(
+    "[data-mask-mode]",
+  )) {
+    const disabled = state.operation !== "removeBackground";
+    option.disabled = disabled;
+    option.classList.toggle(
+      "active",
+      option.dataset.maskMode === state.backgroundEngine,
+    );
+    option.classList.toggle("cursor-not-allowed", disabled);
+    option.classList.toggle("opacity-50", disabled);
+  }
+
   const threshold = requireElement<HTMLInputElement>("threshold");
   const backgroundControls = [
     threshold,
@@ -1034,8 +1018,6 @@ function resetProgress(): void {
       ? "Not loaded"
       : `${semanticBackend.toUpperCase()} • model cached`;
   requireElement("removedPixels").textContent = "-";
-  requireElement("exportInfo").textContent = "-";
-  requireElement("exportDecision").textContent = "-";
 }
 
 function setImageControls(enabled: boolean): void {

@@ -7,100 +7,92 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
-## [1.0.1] - 2026-06-29
-
-This release consolidates all previous and unreleased notes into one complete
-description of Phantom's current public feature set.
+## [1.0.0] - 2026-06-29
 
 ### Added
 
-- Tile-first RGBA processing with bounded-memory planning for 16K, 32K, and
-  64K workflows.
-- Fixed-capacity stream ingestion, overlap-safe tile planning, raw tile
-  sources/sinks, transferable worker jobs, a worker pool, and shared tile
-  buffers.
-- Fixed-point CPU filters for identity, invert, grayscale, natural enhancement,
-  and 3x3 sharpening with discoverable filter profiles.
-- High-level `phantom` facade and named helpers for image creation, cropping,
-  resizing, single or multi-filter processing, masks, and background flattening.
-- Raw RGBA allocation, defensive cloning, cropping, nearest-neighbor resizing,
-  and bilinear resizing.
-- Processing pipelines, progress callbacks, runtime statistics, memory planning,
-  and automatic safe overlap selection.
-- Provider-neutral alpha-mask resizing, color-guided refinement, compositing,
-  and background replacement.
-- Stable shared AI refinement defaults for threshold, softness, feather radius,
-  and edge sensitivity.
-- `@paramission-lab/phantom/ai` with lazy model loading, WebGPU acceleration,
-  CPU/WASM fallback, browser caching, progress reporting, shared initialization,
-  reusable inference, and explicit resource disposal.
-- One-call `removeBackgroundAi()`, reusable `createAiBackgroundRemover()`, and
-  the short `createPhantomAi()` alias.
-- `@paramission-lab/phantom/browser` with PNG, JPEG, and WebP conversion for
-  Blob, URL, Canvas, ImageData, and raw RGBA inputs.
-- Phantom Adaptive Export, which selects a format from sampled alpha, color
-  complexity, and edge density and reports its decision.
-- Safe PNG fallback when a requested browser encoder is unavailable.
-- WebGPU compute processing, WebGPU/WebGL renderers, Zig WebAssembly kernels,
-  and the `@paramission-lab/phantom/wasm` adapter.
-- Upload-based Tailwind CSS Demo with before/after comparison, AI removal,
-  adaptive export, runtime capabilities, memory planning, filter profiles, and
-  the complete SDK feature surface.
-- GitHub organization documentation, contribution guidance, security policy,
-  strict TypeScript, ESLint, Prettier, Vitest, and npm package exports.
+- Added the default `phantom` facade and default package export for the common API:
+  `makeImage`, `cropImage`, `resizeImage`, `applyFilter`, `applyFilters`,
+  `removeImageBackground`, `applyMask`, and `replaceBackground`.
+- Added short named helpers for common raw RGBA workflows so callers can avoid
+  lower-level tile and overlap configuration in basic usage.
+- Added raw RGBA image utilities for allocation, defensive cloning, cropping,
+  and nearest-neighbor or bilinear resizing.
+- Added `processRawImageWithStats()` and `processTileSourceWithStats()` for
+  progress UIs, logging, and runtime health checks.
+- Added `processRawImagePipeline()` for applying multiple filters as a reusable
+  processing recipe.
+- Added `removeBackgroundAi()` and the default `@paramission-lab/phantom/ai`
+  facade so browser AI background removal can run in one call.
 
 ### Changed
 
-- Standardized the SDK brand as `phantom` and the npm package as
-  `@paramission-lab/phantom` because the unscoped package name is occupied.
-- Renamed the public SDK error to `PhantomError` and standardized validation and
-  backend failures around it.
-- Isolated the Demo under `demo/`, browser codecs under `src/browser/`, and the
-  optional AI runtime under `src/ai/` so the core remains DOM-neutral.
-- Starts one-call AI model initialization in parallel with image loading and
-  decoding to reduce cold-start latency.
-- Preloads the AI model when the Demo starts and reuses one model and semantic
-  mask while refinement controls are adjusted.
-- Centralized AI alpha-mask defaults so one-call removal and the Demo cannot
-  drift to different presets.
-- Kept advanced tile, source/sink, mask, GPU, worker, WASM, and batch AI APIs
-  available alongside the short default facade.
-
-### Removed
-
-- Removed the deterministic fuzzy background remover, its public exports,
-  facade helper, Demo controls, and tests. Background removal now uses the
-  downloaded AI model only.
+- Made safe filter overlap selection the default path for the high-level
+  filtering helpers.
+- Updated README examples to start with the default `phantom` import and a
+  shorter AI background-removal flow.
+- Kept lower-level APIs available for advanced tile, source/sink, mask, and
+  batch AI workflows.
 
 ### Fixed
 
-- Rejects filter overlap smaller than the kernel radius to prevent tile seams.
-- Handles both array and direct `RawImage` outputs from Transformers.js.
-- Correctly selects Transformers.js 4.x WebGPU or CPU/WASM configuration and
-  environment-specific browser caching.
-- Preserves existing source transparency when applying generated alpha masks.
-- Cleans `dist` before builds so removed modules cannot leak into npm tarballs
-  as stale artifacts.
-- Requires release tags to match `package.version` and verifies the corrected
-  `@paramission-lab/phantom` scope before publishing.
+- Standardized unsupported filter failures as `PhantomError`.
+- Rejects too-small filter overlap before processing to prevent tile-edge
+  artifacts.
+- Prevented npm publishing from checking out the obsolete
+  `@paramissionlab/phantom` package metadata by requiring a new tag whose name
+  matches the package version and whose package name uses `@paramission-lab`.
 
-### Performance
+## [0.1.0] - 2026-06-29
 
-- Shares concurrent AI preload and inference initialization promises.
-- Loads the AI model in parallel with image decoding and caches pipelines and
-  per-image semantic masks.
-- Keeps AI code split from the core package until the AI entry point is used.
-- Uses bounded tile planning, unrolled packed Zig filter loops, reused 3x3
-  neighbor indexes, and native Zig alpha-mask compositing.
+### Added
+
+- GitHub organization documentation, contribution guidance, and a security policy.
+- Direct GitHub URL installation through an npm `prepare` build lifecycle.
+- GitHub Actions npm publish workflow for release-driven npmjs.com deployment.
+- Public AI `preload()` API with shared concurrent model initialization.
+- Short `createPhantomAi()` alias for concise branded SDK calls.
+- Tile-first RGBA processing with bounded-memory planning for 16K, 32K, and 64K workflows.
+- Fixed-point CPU filters for identity, invert, grayscale, natural enhancement, and 3x3 sharpening.
+- Overlap-aware tile planning that prevents convolution seams.
+- Fixed-capacity stream ingestion, transferable worker payloads, a worker pool, and shared tile buffers.
+- WebGPU compute processing plus WebGPU and WebGL rendering adapters.
+- Zig WebAssembly kernels and the `@paramission-lab/phantom/wasm` adapter.
+- Fuzzy edge-connected background removal with multi-color border sampling, subject protection, and feathering.
+- Provider-neutral alpha-mask resizing, color-guided refinement, compositing, and background replacement.
+- Optional `@paramission-lab/phantom/ai` entry point with lazy model loading, WebGPU acceleration, CPU/WASM fallback, browser caching, progress reporting, and explicit resource disposal.
+- Upload-based Tailwind CSS demo with before/after comparison, transparent PNG export, runtime capabilities, memory planning, and SDK feature controls.
+- Strict TypeScript, ESLint, Prettier, Vitest, GitHub Actions CI, and npm package exports.
+
+### Changed
+
+- Added Paramission Lab repository, issue tracker, homepage, and package metadata.
+- Standardized the SDK brand as `phantom` and the npm package name as `@paramission-lab/phantom`.
+- Switched the npm package to the Paramission Lab scope because the unscoped `phantom` name is already occupied on npm.
+- Renamed the public SDK error class to `PhantomError` so exported API names no longer carry the old image-specific branding.
+- Established the public package and SDK surface as `phantom`.
+- Isolated the demo under `demo/`; reusable implementation remains under `src/`.
 
 ### CI/CD
 
-- Supports reproducible GitHub URL installation through the npm `prepare`
-  lifecycle.
-- Runs type checking, linting, tests, TypeScript and Zig WASM builds, Demo
-  builds, and npm tarball validation before publishing.
-- Publishes release tags to npm with provenance and validates that each tag
-  equals `v<package.version>`.
+- CI builds the demo and validates the package tarball with `npm pack --dry-run`.
+- Release publishing runs full verification before `npm publish --access public --provenance`.
 
-[Unreleased]: https://github.com/ParamissionLab/phantom/compare/v1.0.1...HEAD
-[1.0.1]: https://github.com/ParamissionLab/phantom/releases/tag/v1.0.1
+### Fixed
+
+- Prevented global color matching from deleting isolated foreground highlights.
+- Added compatibility for both array and direct `RawImage` outputs from Transformers.js background-removal pipelines.
+- Corrected Transformers.js 4.x CPU/WASM fallback and environment-specific cache selection.
+- Preserved existing source transparency when applying generated alpha masks.
+
+### Performance
+
+- Demo AI model warm-up runs in parallel with image decoding and reuses the same pipeline promise for inference.
+- Cached AI pipelines and per-image semantic masks to avoid repeated downloads and inference while tuning edges.
+- Added lazy AI code splitting so importing the core SDK does not initialize the ML runtime.
+- Unrolled packed Zig invert and grayscale loops and reused 3x3 neighbor indexes in enhancement kernels.
+- Added native Zig alpha-mask compositing.
+
+[Unreleased]: https://github.com/ParamissionLab/phantom/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/ParamissionLab/phantom/compare/v0.1.0...v1.0.0
+[0.1.0]: https://github.com/ParamissionLab/phantom/releases/tag/v0.1.0

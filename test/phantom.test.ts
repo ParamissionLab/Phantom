@@ -6,6 +6,7 @@ import phantomDefault, {
   cropImage,
   makeImage,
   phantom,
+  removeImageBackground,
   replaceBackground,
   resizeImage,
   type RawRgbaImage,
@@ -71,13 +72,22 @@ describe("default phantom API", () => {
   });
 
   it("uses simple aliases for masks and backgrounds", () => {
+    const cutout = removeImageBackground(
+      {
+        width: 1,
+        height: 1,
+        data: Uint8Array.from([255, 255, 255, 255]),
+      },
+      { threshold: 8, softness: 0, featherRadius: 0 },
+    );
     const masked = applyMask(sampleImage(), {
       width: 1,
       height: 1,
       data: Uint8Array.of(128),
     });
-    const flattened = replaceBackground(masked, { r: 0, g: 0, b: 0 });
+    const flattened = replaceBackground(cutout, { r: 0, g: 0, b: 0 });
 
+    expect(cutout.removedPixels).toBe(1);
     expect(masked.data[3]).toBeGreaterThan(0);
     expect(flattened.data[3]).toBe(255);
   });

@@ -5,9 +5,9 @@
 
 Maintained by [Paramission Lab](https://github.com/ParamissionLab).
 
-Tile-first RGBA image processing for large browser and Node.js workloads. The SDK combines a deterministic CPU baseline with worker, WebGPU, Zig WebAssembly, and optional AI background removal.
+Tile-first RGBA image processing for large browser and Node.js workloads. The SDK combines a deterministic CPU baseline with worker, WebGPU, Zig WebAssembly, and optional AI background-removal paths.
 
-> **Release status:** `1.0.1` is the current stable public release. Follow semantic versioning when selecting an upgrade range.
+> **Release status:** `1.0.0` is the first stable public release. Follow semantic versioning when selecting an upgrade range.
 
 ## Installation
 
@@ -24,13 +24,13 @@ Phantom.
 Directly from a public GitHub repository:
 
 ```bash
-npm install git+https://github.com/ParamissionLab/phantom.git#v1.0.1
+npm install git+https://github.com/ParamissionLab/phantom.git#v0.1.0
 ```
 
 For a private organization repository configured with SSH access:
 
 ```bash
-npm install git+ssh://git@github.com/ParamissionLab/phantom.git#v1.0.1
+npm install git+ssh://git@github.com/ParamissionLab/phantom.git#v0.1.0
 ```
 
 Use a release tag or full commit SHA instead of `main` so installs remain reproducible. npm installs development dependencies and runs the package `prepare` script to compile TypeScript when installing from Git. The optional Zig WASM binary is not compiled during Git installation; build it explicitly with Zig when that backend is required.
@@ -46,9 +46,9 @@ The AI runtime is an optional dependency and is initialized only when `@paramiss
 - Progress callbacks and runtime stats for tile-processing health checks.
 - Multi-step raw-image filter pipelines for reusable processing recipes.
 - Raw RGBA allocation, cloning, cropping, and resizing utilities.
-- Default helpers such as `applyFilter`, `applyFilters`, and `resizeImage`.
-- Optional browser AI background removal for people, animals, products, and complex scenes.
-- Browser PNG, JPEG, and WebP conversion with adaptive format selection.
+- Default helpers such as `applyFilter`, `resizeImage`, and `removeImageBackground`.
+- Fuzzy edge-connected background removal for plain or product backdrops.
+- Optional browser AI background removal for people, animals, and complex scenes.
 - Provider-neutral alpha-mask refinement with color-guided soft edges.
 - Raw RGBA source/sink abstraction for decoder-specific integrations.
 - Browser worker pool and transferable tile payloads.
@@ -74,6 +74,7 @@ const input: RawRgbaImage = {
 
 const preview = phantom.resizeImage(input, 512, 256);
 const enhanced = await phantom.applyFilter(preview);
+const cutout = phantom.removeImageBackground(enhanced);
 ```
 
 Named imports are also available:
@@ -145,22 +146,22 @@ try {
 | ---------------------------------- | -------------------------------------------------------------- |
 | `@paramission-lab/phantom`         | Core tiling, filters, masks, pipeline, planning, and utilities |
 | `@paramission-lab/phantom/ai`      | Lazy AI subject-mask generation                                |
-| `@paramission-lab/phantom/browser` | Browser image decoding, conversion, and adaptive export        |
 | `@paramission-lab/phantom/gpu`     | WebGPU compute and WebGPU/WebGL renderers                      |
 | `@paramission-lab/phantom/wasm`    | Zig WebAssembly loader and accelerated kernel adapter          |
 | `@paramission-lab/phantom/workers` | Worker pool and shared tile-buffer helpers                     |
 
 ## Default API
 
-| Function            | Use when you want to                                     |
-| ------------------- | -------------------------------------------------------- |
-| `makeImage`         | Create a blank or solid-color raw RGBA image             |
-| `resizeImage`       | Resize with simple `width, height` arguments             |
-| `cropImage`         | Crop an image with `{ x, y, width, height }`             |
-| `applyFilter`       | Apply one filter without configuring tile overlap        |
-| `applyFilters`      | Apply multiple filters in order                          |
-| `applyMask`         | Apply an external or AI-generated segmentation mask      |
-| `replaceBackground` | Flatten transparent pixels onto a solid background color |
+| Function                | Use when you want to                                     |
+| ----------------------- | -------------------------------------------------------- |
+| `makeImage`             | Create a blank or solid-color raw RGBA image             |
+| `resizeImage`           | Resize with simple `width, height` arguments             |
+| `cropImage`             | Crop an image with `{ x, y, width, height }`             |
+| `applyFilter`           | Apply one filter without configuring tile overlap        |
+| `applyFilters`          | Apply multiple filters in order                          |
+| `removeImageBackground` | Remove a plain or product background with safe defaults  |
+| `applyMask`             | Apply an external segmentation mask                      |
+| `replaceBackground`     | Flatten transparent pixels onto a solid background color |
 
 Prefer one import for everyday usage:
 
@@ -169,6 +170,18 @@ import phantom from "@paramission-lab/phantom";
 
 const image = phantom.makeImage(800, 600, { r: 255, g: 255, b: 255 });
 const output = await phantom.applyFilter(image, "invert");
+```
+
+Remove a mostly-uniform background and keep alpha for PNG export:
+
+```ts
+import { removeBackground } from "@paramission-lab/phantom";
+
+const cutout = removeBackground(input, {
+  threshold: 38,
+  softness: 44,
+  featherRadius: 2,
+});
 ```
 
 Apply a mask from any segmentation provider:
@@ -227,9 +240,8 @@ const preview = resizeRawImage(product, { width: 256, height: 256 });
 
 ## AI Background Removal
 
-The optional browser entry point is part of the SDK. It lazily loads and caches
-the model, uses WebGPU when available, and falls back to quantized WASM. The
-one-call API initializes the model in parallel with image loading and decoding.
+The optional browser entry point is part of the SDK. It lazily loads the model,
+uses WebGPU when available, and falls back to quantized WASM.
 
 ```ts
 import ai from "@paramission-lab/phantom/ai";
@@ -268,14 +280,7 @@ const cutout = applyAlphaMask(input, mask);
 await ai.dispose();
 ```
 
-Call `preload()` as soon as AI removal is likely to be used. All concurrent
-`preload()` and `createMask()` calls on the same instance share one model
-initialization promise, and subsequent inference reuses that loaded pipeline.
-`createAiBackgroundRemover()` remains available as the descriptive alias.
-
-AI removal and the Demo share `DEFAULT_ALPHA_MASK_REFINEMENT_OPTIONS` so the
-default result cannot drift from the demonstrated preset: threshold `4`,
-softness `12`, feather radius `2`, and edge sensitivity `48`.
+All concurrent `preload()` and `createMask()` calls on the same instance share one model initialization promise. `createAiBackgroundRemover()` remains available as the descriptive alias.
 
 Configuration:
 
@@ -292,49 +297,6 @@ weights are downloaded on first AI use and cached by the runtime; importing the
 core package does not initialize the AI runtime. Review the model license before
 selecting another model. For offline deployments, configure Transformers.js to
 use self-hosted model files before creating the remover.
-
-## Browser Image Conversion
-
-Use the browser entry point to convert a `Blob`, URL, Canvas, `ImageData`, or raw
-RGBA image to PNG, JPEG, or WebP:
-
-```ts
-import { convertImageFormat } from "@paramission-lab/phantom/browser";
-
-const result = await convertImageFormat(inputBlob, {
-  format: "image/webp",
-  quality: 0.86,
-});
-
-console.log(result.format, result.bytes, result.fallbackUsed);
-```
-
-JPEG export flattens transparency onto white by default. Pass `matte` to choose
-a different background color.
-
-Phantom Adaptive Export samples alpha, quantized color complexity, and edge
-density to choose a safe format without allocating a full histogram:
-
-```ts
-import {
-  imageFormatExtension,
-  smartExportImage,
-} from "@paramission-lab/phantom/browser";
-
-const result = await smartExportImage(cutout, {
-  strategy: "balanced", // balanced, smallest, or lossless
-  quality: 0.86,
-});
-
-const extension = imageFormatExtension(result.format);
-console.log(extension, result.reason, result.analysis);
-```
-
-Adaptive export keeps detected transparency in PNG, uses PNG for limited-palette
-graphics with strong edges, and otherwise prefers WebP. If a requested browser
-encoder is unavailable, the SDK falls back to PNG and sets `fallbackUsed`.
-Encoding uses browser Canvas APIs and therefore requires a full-frame Canvas;
-its memory ceiling is separate from Phantom's bounded tile-processing path.
 
 ## Architecture
 
@@ -400,14 +362,14 @@ GitHub organizations and npm organizations are separate. The npm publish step
 requires an npm organization or user scope named `paramission-lab`; creating only
 `github.com/ParamissionLab` is not enough.
 
-Older tags contain incomplete or obsolete package metadata and must not be
-moved or reused. Publish the consolidated package from the current `1.0.1`
-metadata with a new tag:
+The original `v0.1.0` tag contains the obsolete `@paramissionlab/phantom`
+package name and must not be moved or reused. Publish the corrected package from
+the current `1.0.0` metadata with a new tag:
 
 ```bash
 git add package.json package-lock.json CHANGELOG.md README.md SECURITY.md .github/workflows/publish-npm.yml Plan.md
 git commit -m "Fix npm release scope validation"
-git tag v1.0.1
+git tag v1.0.0
 git push origin main --follow-tags
 ```
 
@@ -429,7 +391,7 @@ Publishing a GitHub Release also starts the same workflow, protected by the
 `npm` environment.
 
 Manual publish from GitHub Actions is also available through the `Publish npm`
-workflow dispatch input. Use a release tag such as `v1.0.1`.
+workflow dispatch input. Use a release tag such as `v1.0.0`.
 
 If `npm publish` fails with `E404 Scope not found`, create the npm organization
 `paramission-lab` on npmjs.com or change `package.json` to a scope that already
@@ -482,7 +444,7 @@ const capabilities = detectCapabilities();
 ## Operational Limits
 
 - A 32K/64K target is processed as bounded tiles; it is not a promise that every browser or decoder can allocate a complete frame.
-- AI quality depends on the selected model and input; tune mask refinement for difficult edges.
+- AI quality depends on the selected model and input. Keep the deterministic fuzzy path available for plain backdrops.
 - WebGPU availability and supported precision vary by browser and GPU driver. The SDK falls back when initialization fails.
 - `SharedArrayBuffer` requires cross-origin isolation headers.
 

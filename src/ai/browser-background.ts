@@ -200,23 +200,15 @@ export async function removeBackgroundAi(
   image: BrowserImageInput,
   options: AiBackgroundRemovalOptions = {},
 ): Promise<AiBackgroundRemovalResult> {
+  const prepared = await prepareBrowserImage(image);
   const remover = createAiBackgroundRemover(options);
-  let prepared: Awaited<ReturnType<typeof prepareBrowserImage>> | undefined;
-  const preparedPromise = prepareBrowserImage(image).then((result) => {
-    prepared = result;
-    return result;
-  });
 
   try {
-    const [readyImage] = await Promise.all([
-      preparedPromise,
-      remover.preload(options.onProgress),
-    ]);
     const { mask, backend, model } = await remover.createMask(
-      readyImage.modelInput,
+      prepared.modelInput,
       options.onProgress,
     );
-    const cutout = applyAlphaMask(readyImage.rgba, mask, options);
+    const cutout = applyAlphaMask(prepared.rgba, mask, options);
 
     return {
       ...cutout,
@@ -225,13 +217,7 @@ export async function removeBackgroundAi(
       model,
     };
   } finally {
-    if (prepared !== undefined) {
-      prepared.close?.();
-    } else {
-      void preparedPromise
-        .then((lateImage) => lateImage.close?.())
-        .catch(() => undefined);
-    }
+    prepared.close?.();
     await remover.dispose();
   }
 }

@@ -5,12 +5,17 @@ export {
 export { applyFilterToTile } from "./core/kernels.js";
 export {
   applyAlphaMask,
-  DEFAULT_ALPHA_MASK_REFINEMENT_OPTIONS,
+  estimateBackgroundColor,
+  estimateBackgroundPalette,
   refineAlphaMask,
+  removeBackground,
   replaceTransparentBackground,
   type AlphaMask,
   type AlphaMaskRefinementOptions,
   type AlphaMaskResult,
+  type BackgroundRemovalDiagnostics,
+  type BackgroundRemovalOptions,
+  type BackgroundRemovalResult,
   type RgbColor,
 } from "./core/background.js";
 export {
@@ -44,6 +49,7 @@ export {
   cropImage,
   makeImage,
   phantom,
+  removeImageBackground,
   replaceBackground,
   resizeImage,
   type FilterOptions,
