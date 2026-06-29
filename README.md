@@ -14,12 +14,12 @@ Tile-first RGBA image processing for large browser and Node.js workloads. The SD
 From the npm registry:
 
 ```bash
-npm install @paramission-lab/phantom
+npm install phantom@npm:@paramission-lab/phantom
 ```
 
-The unscoped `phantom` package name is already used on npm, so the public npm
-package is scoped under Paramission Lab while the SDK brand and API remain
-Phantom.
+The package is published to npm as `@paramission-lab/phantom`, but the command
+above installs it locally under the short alias `phantom`. Application code can
+therefore import the SDK without the organization scope.
 
 Directly from a public GitHub repository:
 
@@ -35,7 +35,7 @@ npm install git+ssh://git@github.com/ParamissionLab/phantom.git#v0.1.0
 
 Use a release tag or full commit SHA instead of `main` so installs remain reproducible. npm installs development dependencies and runs the package `prepare` script to compile TypeScript when installing from Git. The optional Zig WASM binary is not compiled during Git installation; build it explicitly with Zig when that backend is required.
 
-The AI runtime is an optional dependency and is initialized only when `@paramission-lab/phantom/ai` is used. Model weights are not included in the npm package.
+The AI runtime is an optional dependency and is initialized only when `phantom/ai` is used. Model weights are not included in the npm package.
 
 ## Features
 
@@ -57,11 +57,7 @@ The AI runtime is an optional dependency and is initialized only when `@paramiss
 ## Quick Start
 
 ```ts
-import {
-  PhantomError,
-  processRawImage,
-  type RawRgbaImage,
-} from "@paramission-lab/phantom";
+import { PhantomError, processRawImage, type RawRgbaImage } from "phantom";
 
 const input: RawRgbaImage = {
   width: 2,
@@ -84,18 +80,18 @@ try {
 
 ## Package Entry Points
 
-| Import                             | Purpose                                                        |
-| ---------------------------------- | -------------------------------------------------------------- |
-| `@paramission-lab/phantom`         | Core tiling, filters, masks, pipeline, planning, and utilities |
-| `@paramission-lab/phantom/ai`      | Lazy AI subject-mask generation                                |
-| `@paramission-lab/phantom/gpu`     | WebGPU compute and WebGPU/WebGL renderers                      |
-| `@paramission-lab/phantom/wasm`    | Zig WebAssembly loader and accelerated kernel adapter          |
-| `@paramission-lab/phantom/workers` | Worker pool and shared tile-buffer helpers                     |
+| Import            | Purpose                                                        |
+| ----------------- | -------------------------------------------------------------- |
+| `phantom`         | Core tiling, filters, masks, pipeline, planning, and utilities |
+| `phantom/ai`      | Lazy AI subject-mask generation                                |
+| `phantom/gpu`     | WebGPU compute and WebGPU/WebGL renderers                      |
+| `phantom/wasm`    | Zig WebAssembly loader and accelerated kernel adapter          |
+| `phantom/workers` | Worker pool and shared tile-buffer helpers                     |
 
 Remove a mostly-uniform background and keep alpha for PNG export:
 
 ```ts
-import { removeBackground } from "@paramission-lab/phantom";
+import { removeBackground } from "phantom";
 
 const cutout = removeBackground(input, {
   threshold: 38,
@@ -107,7 +103,7 @@ const cutout = removeBackground(input, {
 Apply a mask from any segmentation provider:
 
 ```ts
-import { applyAlphaMask } from "@paramission-lab/phantom";
+import { applyAlphaMask } from "phantom";
 
 const cutout = applyAlphaMask(input, {
   width: maskWidth,
@@ -123,8 +119,8 @@ uses WebGPU when available, falls back to quantized WASM, and reuses the loaded
 pipeline across images.
 
 ```ts
-import { applyAlphaMask } from "@paramission-lab/phantom";
-import { createPhantomAi } from "@paramission-lab/phantom/ai";
+import { applyAlphaMask } from "phantom";
+import { createPhantomAi } from "phantom/ai";
 
 const phantom = createPhantomAi();
 await phantom.preload();
@@ -276,7 +272,7 @@ npm run build:wasm
 Instantiate it in the browser or another WebAssembly host:
 
 ```ts
-import { instantiateZigBackend } from "@paramission-lab/phantom/wasm";
+import { instantiateZigBackend } from "phantom/wasm";
 
 const bytes = await fetch("/phantom_kernel.wasm").then((response) =>
   response.arrayBuffer(),
@@ -288,7 +284,7 @@ const output = backend.process(input, "grayscale");
 ## Browser Capability Selection
 
 ```ts
-import { detectCapabilities } from "@paramission-lab/phantom/gpu";
+import { detectCapabilities } from "phantom/gpu";
 
 const capabilities = detectCapabilities();
 ```
