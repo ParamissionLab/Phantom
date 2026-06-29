@@ -35,7 +35,11 @@ vi.mock("@huggingface/transformers", () => ({
   pipeline: mocks.pipeline,
 }));
 
-import { createAiBackgroundRemover } from "../src/ai/index.js";
+import {
+  default as ai,
+  createAiBackgroundRemover,
+  removeBackgroundAi,
+} from "../src/ai/index.js";
 
 describe("AI background remover", () => {
   beforeEach(() => {
@@ -73,4 +77,78 @@ describe("AI background remover", () => {
     expect(Array.from(result.mask.data)).toEqual([64, 224]);
     await remover.dispose();
   });
+
+  it("removes a background from a canvas in one call", async () => {
+    const canvas = new MockCanvas(
+      2,
+      1,
+      Uint8ClampedArray.from([10, 20, 30, 255, 40, 50, 60, 255]),
+    );
+
+    const result = await removeBackgroundAi(
+      canvas as unknown as OffscreenCanvas,
+      {
+        backend: "wasm",
+        threshold: 128,
+        softness: 127,
+        featherRadius: 0,
+      },
+    );
+
+    expect(result.backend).toBe("wasm");
+    expect(result.width).toBe(2);
+    expect(result.height).toBe(1);
+    expect(Array.from(result.alphaMask.data)).toEqual([64, 224]);
+    expect(result.data[3]).toBe(0);
+    expect(result.data[7]).toBeGreaterThan(0);
+    expect(mocks.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("exposes a default AI facade", async () => {
+    const canvas = new MockCanvas(
+      2,
+      1,
+      new Uint8ClampedArray([10, 20, 30, 255, 40, 50, 60, 255]),
+    );
+
+    const result = await ai.removeBackground(
+      canvas as unknown as OffscreenCanvas,
+      {
+        backend: "wasm",
+        threshold: 128,
+        softness: 127,
+        featherRadius: 0,
+      },
+    );
+
+    expect(result.backend).toBe("wasm");
+    expect(Array.from(result.alphaMask.data)).toEqual([64, 224]);
+  });
 });
+
+class MockCanvas {
+  public constructor(
+    public readonly width: number,
+    public readonly height: number,
+    private readonly data: Uint8ClampedArray<ArrayBuffer>,
+  ) {}
+
+  public getContext(): {
+    readonly getImageData: () => ImageData;
+    readonly drawImage: () => void;
+  } {
+    return {
+      getImageData: () => {
+        return {
+          width: this.width,
+          height: this.height,
+          data: this.data,
+          colorSpace: "srgb",
+        };
+      },
+      drawImage: () => undefined,
+    };
+  }
+}
+
+vi.stubGlobal("OffscreenCanvas", MockCanvas);

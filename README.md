@@ -241,37 +241,43 @@ const preview = resizeRawImage(product, { width: 256, height: 256 });
 ## AI Background Removal
 
 The optional browser entry point is part of the SDK. It lazily loads the model,
-uses WebGPU when available, falls back to quantized WASM, and reuses the loaded
-pipeline across images.
+uses WebGPU when available, and falls back to quantized WASM.
+
+```ts
+import ai from "@paramission-lab/phantom/ai";
+
+const cutout = await ai.removeBackground(imageCanvas, {
+  onProgress: (progress) => console.log(progress.label),
+});
+
+canvasContext.putImageData(
+  new ImageData(
+    new Uint8ClampedArray(cutout.data),
+    cutout.width,
+    cutout.height,
+  ),
+  0,
+  0,
+);
+```
+
+`removeBackgroundAi()` accepts a browser `Blob`, URL, `HTMLCanvasElement`, or
+`OffscreenCanvas`. The result includes `data`, `width`, `height`, `backend`, and
+`model`.
+
+For many images, reuse one loaded model:
 
 ```ts
 import { applyAlphaMask } from "@paramission-lab/phantom";
 import { createPhantomAi } from "@paramission-lab/phantom/ai";
 
-const phantom = createPhantomAi();
-await phantom.preload();
-const { mask, backend } = await phantom.createMask(imageCanvas, (progress) => {
-  console.log(progress.label, progress.percent ?? "");
-});
-const cutout = applyAlphaMask(input, mask, {
-  featherRadius: 2,
-  edgeSensitivity: 58,
-});
+const ai = createPhantomAi();
+await ai.preload();
 
-console.log(backend); // webgpu or wasm
-await phantom.dispose();
-```
+const { mask } = await ai.createMask(imageCanvas);
+const cutout = applyAlphaMask(input, mask);
 
-Start model initialization while decoding an image:
-
-```ts
-const modelReady = phantom.preload(onModelProgress);
-const bitmapReady = createImageBitmap(file);
-const [, bitmap] = await Promise.all([modelReady, bitmapReady]);
-
-canvasContext.drawImage(bitmap, 0, 0);
-const result = await phantom.createMask(canvas);
-bitmap.close();
+await ai.dispose();
 ```
 
 All concurrent `preload()` and `createMask()` calls on the same instance share one model initialization promise. `createAiBackgroundRemover()` remains available as the descriptive alias.
@@ -284,6 +290,7 @@ Configuration:
 | `backend`     | `auto`                      | `auto`, `webgpu`, or CPU/WASM fallback      |
 | `webgpuDtype` | `fp16`                      | WebGPU precision: `fp16` or `fp32`          |
 | `wasmDtype`   | `q8`                        | Fallback precision: `q4`, `q8`, or `fp32`   |
+| `onProgress`  | none                        | Progress callback for model loading         |
 
 The default `onnx-community/ormbg-ONNX` model is Apache-2.0 licensed. Model
 weights are downloaded on first AI use and cached by the runtime; importing the

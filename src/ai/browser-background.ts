@@ -1,5 +1,11 @@
 import type { ProgressInfo, RawImage } from "@huggingface/transformers";
-import type { AlphaMask } from "../core/background.js";
+import {
+  applyAlphaMask,
+  type AlphaMask,
+  type AlphaMaskRefinementOptions,
+  type AlphaMaskResult,
+} from "../core/background.js";
+import { PhantomError, type RawRgbaImage } from "../core/types.js";
 
 const DEFAULT_MODEL_ID = "onnx-community/ormbg-ONNX";
 
@@ -27,6 +33,17 @@ export interface AiMaskResult {
 }
 
 export interface AiPreloadResult {
+  readonly backend: AiBackend;
+  readonly model: string;
+}
+
+export interface AiBackgroundRemovalOptions
+  extends AiBackgroundRemoverOptions, AlphaMaskRefinementOptions {
+  readonly onProgress?: (progress: AiProgress) => void;
+}
+
+export interface AiBackgroundRemovalResult extends AlphaMaskResult {
+  readonly alphaMask: AlphaMask;
   readonly backend: AiBackend;
   readonly model: string;
 }
@@ -176,6 +193,35 @@ export function createAiBackgroundRemover(
 /** Short branded alias for createAiBackgroundRemover. */
 export const createPhantomAi = createAiBackgroundRemover;
 
+/**
+ * One-call AI background removal for browser apps.
+ */
+export async function removeBackgroundAi(
+  image: BrowserImageInput,
+  options: AiBackgroundRemovalOptions = {},
+): Promise<AiBackgroundRemovalResult> {
+  const prepared = await prepareBrowserImage(image);
+  const remover = createAiBackgroundRemover(options);
+
+  try {
+    const { mask, backend, model } = await remover.createMask(
+      prepared.modelInput,
+      options.onProgress,
+    );
+    const cutout = applyAlphaMask(prepared.rgba, mask, options);
+
+    return {
+      ...cutout,
+      alphaMask: mask,
+      backend,
+      model,
+    };
+  } finally {
+    prepared.close?.();
+    await remover.dispose();
+  }
+}
+
 function createProgressCallback(
   onProgress?: (progress: AiProgress) => void,
 ): (info: ProgressInfo) => void {
@@ -208,4 +254,100 @@ async function createPipeline(
 
 function shortFileName(file: string): string {
   return file.split("/").at(-1) ?? "model";
+}
+
+async function prepareBrowserImage(image: BrowserImageInput): Promise<{
+  readonly rgba: RawRgbaImage;
+  readonly modelInput: BrowserImageInput;
+  readonly close?: () => void;
+}> {
+  if (isCanvas(image)) {
+    return { rgba: readCanvasRgba(image), modelInput: image };
+  }
+
+  const blob = await loadImageBlob(image);
+  const bitmap = await createImageBitmap(blob);
+  const canvas = drawBitmapToCanvas(bitmap);
+
+  return {
+    rgba: readCanvasRgba(canvas),
+    modelInput: canvas,
+    close: () => {
+      bitmap.close();
+    },
+  };
+}
+
+async function loadImageBlob(image: BrowserImageInput): Promise<Blob> {
+  if (image instanceof Blob) {
+    return image;
+  }
+
+  if (typeof image === "string" || image instanceof URL) {
+    if (typeof fetch === "undefined") {
+      throw new PhantomError("fetch is required to load image URLs.");
+    }
+    const response = await fetch(image);
+    if (!response.ok) {
+      throw new PhantomError(`Unable to load image: HTTP ${response.status}.`);
+    }
+    return response.blob();
+  }
+
+  throw new PhantomError("Unsupported AI image input.");
+}
+
+function drawBitmapToCanvas(
+  bitmap: ImageBitmap,
+): HTMLCanvasElement | OffscreenCanvas {
+  const canvas = createCanvas(bitmap.width, bitmap.height);
+  const context = canvas.getContext("2d");
+  if (context === null) {
+    throw new PhantomError("Unable to create a 2D canvas context.");
+  }
+  context.drawImage(bitmap, 0, 0);
+  return canvas;
+}
+
+function readCanvasRgba(
+  canvas: HTMLCanvasElement | OffscreenCanvas,
+): RawRgbaImage {
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (context === null) {
+    throw new PhantomError("Unable to read a 2D canvas context.");
+  }
+  const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+  return {
+    width: imageData.width,
+    height: imageData.height,
+    data: new Uint8Array(imageData.data),
+  };
+}
+
+function createCanvas(
+  width: number,
+  height: number,
+): HTMLCanvasElement | OffscreenCanvas {
+  if (typeof OffscreenCanvas !== "undefined") {
+    return new OffscreenCanvas(width, height);
+  }
+
+  if (typeof document !== "undefined") {
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    return canvas;
+  }
+
+  throw new PhantomError("Canvas APIs are required for AI background removal.");
+}
+
+function isCanvas(
+  value: BrowserImageInput,
+): value is HTMLCanvasElement | OffscreenCanvas {
+  return (
+    (typeof HTMLCanvasElement !== "undefined" &&
+      value instanceof HTMLCanvasElement) ||
+    (typeof OffscreenCanvas !== "undefined" && value instanceof OffscreenCanvas)
+  );
 }
