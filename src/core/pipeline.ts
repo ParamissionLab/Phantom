@@ -1,9 +1,13 @@
 import { applyFilterToTile } from "./kernels.js";
+import { getPixelFilterOverlap, getPixelFilterProfile } from "./filters.js";
 import { planTiles, rectByteLength } from "./tiling.js";
 import {
   PhantomError,
   RGBA_CHANNELS,
+  type ProcessPipelineStep,
   type ProcessOptions,
+  type ProcessStats,
+  type RawRgbaProcessResult,
   type RawRgbaImage,
   type Rect,
   type TileSink,
@@ -22,6 +26,18 @@ export async function processRawImage(
   input: RawRgbaImage,
   options: ProcessOptions = {},
 ): Promise<RawRgbaImage> {
+  const result = await processRawImageWithStats(input, options);
+  return result.image;
+}
+
+/**
+ * Processes a raw RGBA image and returns operational stats for progress UI,
+ * logs, and runtime health checks.
+ */
+export async function processRawImageWithStats(
+  input: RawRgbaImage,
+  options: ProcessOptions = {},
+): Promise<RawRgbaProcessResult> {
   assertRgbaLength(input);
 
   const output: RawRgbaImage = {
@@ -30,14 +46,35 @@ export async function processRawImage(
     data: new Uint8Array(input.data.length),
   };
 
-  await processTileSource(
+  const stats = await processTileSourceWithStats(
     { width: input.width, height: input.height },
     createRawTileSource(input),
     createRawTileSink(output),
     options,
   );
 
-  return output;
+  return { image: output, stats };
+}
+
+/**
+ * Runs multiple filters in sequence without making callers manually pass the
+ * output of one step into the next.
+ */
+export async function processRawImagePipeline(
+  input: RawRgbaImage,
+  steps: readonly ProcessPipelineStep[],
+  options: Omit<ProcessOptions, "filter"> = {},
+): Promise<RawRgbaImage> {
+  if (steps.length === 0) {
+    throw new PhantomError("At least one pipeline step is required.");
+  }
+
+  let current = input;
+  for (const step of steps) {
+    current = await processRawImage(current, mergeStepOptions(options, step));
+  }
+
+  return current;
 }
 
 /**
@@ -51,23 +88,51 @@ export async function processTileSource(
   sink: TileSink,
   options: ProcessOptions = {},
 ): Promise<void> {
-  const tileSize = options.tileSize ?? DEFAULT_TILE_SIZE;
-  const overlap = options.overlap ?? DEFAULT_OVERLAP;
-  const filter = options.filter ?? "identity";
+  await processTileSourceWithStats(dimensions, source, sink, options);
+}
+
+/**
+ * Processes an arbitrary tile source and sink while returning runtime stats.
+ */
+export async function processTileSourceWithStats(
+  dimensions: { readonly width: number; readonly height: number },
+  source: TileSource,
+  sink: TileSink,
+  options: ProcessOptions = {},
+): Promise<ProcessStats> {
+  const { tileSize, overlap, filter } = resolveProcessOptions(options);
   const tiles = planTiles({
     width: dimensions.width,
     height: dimensions.height,
     tileSize,
     overlap,
   });
+  const startedAtMs = nowMs();
+  let processedTiles = 0;
+  let outputBytes = 0;
 
   for (const descriptor of tiles) {
     options.signal?.throwIfAborted();
     const rgba = await source.read(descriptor.input);
     const result = applyFilterToTile({ descriptor, rgba }, filter);
     await sink.write(result.descriptor.output, result.rgba);
+    processedTiles += 1;
+    outputBytes += result.rgba.length;
     options.onTile?.(descriptor);
+    options.onProgress?.({
+      tile: descriptor,
+      completedTiles: processedTiles,
+      totalTiles: tiles.length,
+      percent: (processedTiles / tiles.length) * 100,
+    });
   }
+
+  return {
+    totalTiles: tiles.length,
+    processedTiles,
+    outputBytes,
+    elapsedMs: nowMs() - startedAtMs,
+  };
 }
 
 export function createRawTileSource(image: RawRgbaImage): TileSource {
@@ -125,4 +190,39 @@ function assertRectWithinImage(rect: Rect, image: RawRgbaImage): void {
       `Rectangle is outside image bounds: ${JSON.stringify(rect)}.`,
     );
   }
+}
+
+function resolveProcessOptions(options: ProcessOptions): Required<
+  Pick<ProcessOptions, "tileSize" | "overlap" | "filter">
+> {
+  const filter = options.filter ?? "identity";
+  getPixelFilterProfile(filter);
+
+  const tileSize = options.tileSize ?? DEFAULT_TILE_SIZE;
+  const overlap = options.overlap ?? DEFAULT_OVERLAP;
+  const requiredOverlap = getPixelFilterOverlap(filter);
+
+  if (overlap < requiredOverlap) {
+    throw new PhantomError(
+      `${filter} requires overlap of at least ${requiredOverlap}.`,
+    );
+  }
+
+  return { tileSize, overlap, filter };
+}
+
+function mergeStepOptions(
+  options: Omit<ProcessOptions, "filter">,
+  step: ProcessPipelineStep,
+): ProcessOptions {
+  return {
+    ...options,
+    ...(step.tileSize === undefined ? {} : { tileSize: step.tileSize }),
+    ...(step.overlap === undefined ? {} : { overlap: step.overlap }),
+    filter: step.filter,
+  };
+}
+
+function nowMs(): number {
+  return globalThis.performance?.now() ?? Date.now();
 }

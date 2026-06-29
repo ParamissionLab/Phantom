@@ -1,4 +1,4 @@
-import { type PixelFilter } from "./types.js";
+import { PhantomError, type PixelFilter } from "./types.js";
 
 export interface PixelFilterProfile {
   readonly id: PixelFilter;
@@ -71,7 +71,7 @@ export function listPixelFilters(): readonly PixelFilterProfile[] {
 export function getPixelFilterProfile(filter: PixelFilter): PixelFilterProfile {
   const profile = PIXEL_FILTER_PROFILES.find((entry) => entry.id === filter);
   if (profile === undefined) {
-    throw new Error(`Unsupported pixel filter: ${String(filter)}`);
+    throw new PhantomError(`Unsupported pixel filter: ${String(filter)}.`);
   }
   return profile;
 }

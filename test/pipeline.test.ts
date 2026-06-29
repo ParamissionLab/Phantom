@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { processRawImage, type RawRgbaImage } from "../src/index.js";
+import {
+  PhantomError,
+  processRawImage,
+  processRawImagePipeline,
+  processRawImageWithStats,
+  type RawRgbaImage,
+} from "../src/index.js";
 
 function makeImage(): RawRgbaImage {
   return {
@@ -40,5 +46,68 @@ describe("processRawImage", () => {
         data: Uint8Array.from([1, 2, 3]),
       }),
     ).rejects.toThrow(/length mismatch/i);
+  });
+
+  it("reports progress and runtime stats", async () => {
+    const progress: Array<{
+      readonly completedTiles: number;
+      readonly totalTiles: number;
+      readonly percent: number;
+    }> = [];
+
+    const result = await processRawImageWithStats(makeImage(), {
+      tileSize: 2,
+      overlap: 1,
+      filter: "identity",
+      onProgress: (event) => {
+        progress.push({
+          completedTiles: event.completedTiles,
+          totalTiles: event.totalTiles,
+          percent: event.percent,
+        });
+      },
+    });
+
+    expect(result.image.data).toEqual(makeImage().data);
+    expect(result.stats.totalTiles).toBe(2);
+    expect(result.stats.processedTiles).toBe(2);
+    expect(result.stats.outputBytes).toBe(makeImage().data.length);
+    expect(result.stats.elapsedMs).toBeGreaterThanOrEqual(0);
+    expect(progress).toEqual([
+      { completedTiles: 1, totalTiles: 2, percent: 50 },
+      { completedTiles: 2, totalTiles: 2, percent: 100 },
+    ]);
+  });
+
+  it("runs multiple filters as a reusable pipeline", async () => {
+    const output = await processRawImagePipeline(
+      {
+        width: 1,
+        height: 1,
+        data: Uint8Array.from([10, 20, 30, 255]),
+      },
+      [{ filter: "grayscale", overlap: 0 }, { filter: "invert", overlap: 0 }],
+      { tileSize: 1 },
+    );
+
+    expect(Array.from(output.data)).toEqual([237, 237, 237, 255]);
+  });
+
+  it("rejects filters when the requested overlap is too small", async () => {
+    await expect(
+      processRawImage(makeImage(), {
+        tileSize: 2,
+        overlap: 0,
+        filter: "sharpen3x3",
+      }),
+    ).rejects.toThrow(/requires overlap/i);
+  });
+
+  it("rejects unsupported filters with a branded error", async () => {
+    await expect(
+      processRawImage(makeImage(), {
+        filter: "missing" as never,
+      }),
+    ).rejects.toBeInstanceOf(PhantomError);
   });
 });

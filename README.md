@@ -43,6 +43,10 @@ The AI runtime is an optional dependency and is initialized only when `@paramiss
 - Overlap-aware tiling for convolution filters without tile-edge artifacts.
 - Fixed-point RGBA kernels: identity, invert, grayscale, smooth enhance, and sharpen 3x3.
 - Discoverable filter profiles with overlap and backend metadata.
+- Progress callbacks and runtime stats for tile-processing health checks.
+- Multi-step raw-image filter pipelines for reusable processing recipes.
+- Raw RGBA allocation, cloning, cropping, and resizing utilities.
+- Default helpers such as `applyFilter`, `resizeImage`, and `removeImageBackground`.
 - Fuzzy edge-connected background removal for plain or product backdrops.
 - Optional browser AI background removal for people, animals, and complex scenes.
 - Provider-neutral alpha-mask refinement with color-guided soft edges.
@@ -55,6 +59,60 @@ The AI runtime is an optional dependency and is initialized only when `@paramiss
 - TypeScript strict mode, Vitest tests, ESLint, Prettier, and CI.
 
 ## Quick Start
+
+For simple use cases, import the default `phantom` object and let Phantom choose
+safe tile settings:
+
+```ts
+import phantom, { type RawRgbaImage } from "@paramission-lab/phantom";
+
+const input: RawRgbaImage = {
+  width: 2,
+  height: 1,
+  data: Uint8Array.from([10, 20, 30, 255, 200, 210, 220, 255]),
+};
+
+const preview = phantom.resizeImage(input, 512, 256);
+const enhanced = await phantom.applyFilter(preview);
+const cutout = phantom.removeImageBackground(enhanced);
+```
+
+Named imports are also available:
+
+```ts
+import { applyFilter, resizeImage } from "@paramission-lab/phantom";
+
+const preview = resizeImage(input, 512, 256);
+const enhanced = await applyFilter(preview);
+```
+
+Use it with a browser canvas:
+
+```ts
+import phantom from "@paramission-lab/phantom";
+
+const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+const output = await phantom.applyFilter(
+  {
+    width: imageData.width,
+    height: imageData.height,
+    data: new Uint8Array(imageData.data),
+  },
+  "sharpen3x3",
+);
+
+ctx.putImageData(
+  new ImageData(
+    new Uint8ClampedArray(output.data),
+    output.width,
+    output.height,
+  ),
+  0,
+  0,
+);
+```
+
+Use the lower-level API when you want full control:
 
 ```ts
 import {
@@ -92,6 +150,28 @@ try {
 | `@paramission-lab/phantom/wasm`    | Zig WebAssembly loader and accelerated kernel adapter          |
 | `@paramission-lab/phantom/workers` | Worker pool and shared tile-buffer helpers                     |
 
+## Default API
+
+| Function                | Use when you want to                                     |
+| ----------------------- | -------------------------------------------------------- |
+| `makeImage`             | Create a blank or solid-color raw RGBA image             |
+| `resizeImage`           | Resize with simple `width, height` arguments             |
+| `cropImage`             | Crop an image with `{ x, y, width, height }`             |
+| `applyFilter`           | Apply one filter without configuring tile overlap        |
+| `applyFilters`          | Apply multiple filters in order                          |
+| `removeImageBackground` | Remove a plain or product background with safe defaults  |
+| `applyMask`             | Apply an external segmentation mask                      |
+| `replaceBackground`     | Flatten transparent pixels onto a solid background color |
+
+Prefer one import for everyday usage:
+
+```ts
+import phantom from "@paramission-lab/phantom";
+
+const image = phantom.makeImage(800, 600, { r: 255, g: 255, b: 255 });
+const output = await phantom.applyFilter(image, "invert");
+```
+
 Remove a mostly-uniform background and keep alpha for PNG export:
 
 ```ts
@@ -114,6 +194,48 @@ const cutout = applyAlphaMask(input, {
   height: maskHeight,
   data: maskBytes,
 });
+```
+
+Track progress and collect runtime stats:
+
+```ts
+import { processRawImageWithStats } from "@paramission-lab/phantom";
+
+const { image, stats } = await processRawImageWithStats(input, {
+  tileSize: 512,
+  filter: "smoothEnhance",
+  onProgress: ({ completedTiles, totalTiles, percent }) => {
+    console.log(`${completedTiles}/${totalTiles}`, `${percent.toFixed(0)}%`);
+  },
+});
+
+console.log(stats.processedTiles, stats.elapsedMs);
+```
+
+Run reusable multi-filter recipes:
+
+```ts
+import { processRawImagePipeline } from "@paramission-lab/phantom";
+
+const output = await processRawImagePipeline(
+  input,
+  [{ filter: "smoothEnhance" }, { filter: "sharpen3x3" }],
+  { tileSize: 512 },
+);
+```
+
+Prepare raw images before processing:
+
+```ts
+import {
+  createRawRgbaImage,
+  cropRawImage,
+  resizeRawImage,
+} from "@paramission-lab/phantom";
+
+const transparent = createRawRgbaImage({ width: 1024, height: 1024 });
+const product = cropRawImage(input, { x: 120, y: 80, width: 640, height: 640 });
+const preview = resizeRawImage(product, { width: 256, height: 256 });
 ```
 
 ## AI Background Removal
@@ -301,7 +423,8 @@ const capabilities = detectCapabilities();
 - AI inference should run on a bounded working image. Refine and apply its alpha
   mask tile-by-tile for 32K/64K outputs instead of allocating a full-resolution
   neural-network tensor.
-- `tileSize` and `overlap` are explicit knobs; convolution filters should use an overlap at least equal to the kernel radius.
+- `tileSize` and `overlap` are explicit knobs; convolution filters now reject
+  overlap smaller than the filter radius to avoid tile-edge artifacts.
 - WebGPU compute kernels are not hardcoded into the core. Add them behind the same `TileSource` and `TileSink` contracts.
 - Memory64 is tracked as an exploration item because browser support remains environment-dependent.
 

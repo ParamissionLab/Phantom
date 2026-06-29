@@ -33,12 +33,38 @@ export interface TileResult {
   readonly rgba: Uint8Array;
 }
 
+export interface ProcessProgress {
+  readonly tile: TileDescriptor;
+  readonly completedTiles: number;
+  readonly totalTiles: number;
+  readonly percent: number;
+}
+
+export interface ProcessStats {
+  readonly totalTiles: number;
+  readonly processedTiles: number;
+  readonly outputBytes: number;
+  readonly elapsedMs: number;
+}
+
+export interface RawRgbaProcessResult {
+  readonly image: RawRgbaImage;
+  readonly stats: ProcessStats;
+}
+
+export interface ProcessPipelineStep {
+  readonly filter: PixelFilter;
+  readonly tileSize?: number;
+  readonly overlap?: number;
+}
+
 export interface ProcessOptions {
   readonly tileSize?: number;
   readonly overlap?: number;
   readonly filter?: PixelFilter;
   readonly signal?: AbortSignal;
   readonly onTile?: (tile: TileDescriptor) => void;
+  readonly onProgress?: (progress: ProcessProgress) => void;
 }
 
 export interface TileSource {
