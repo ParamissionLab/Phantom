@@ -1,0 +1,127 @@
+import type { PixelFilter, TilePayload, TileResult } from "../core/types.js";
+
+interface PendingTile {
+  readonly payload: TilePayload;
+  readonly filter: PixelFilter;
+  readonly resolve: (result: TileResult) => void;
+  readonly reject: (reason: unknown) => void;
+}
+
+interface WorkerResponse {
+  readonly id: number;
+  readonly result?: TileResult;
+  readonly error?: string;
+}
+
+/**
+ * Browser worker pool for parallel tile execution.
+ */
+export class TileWorkerPool {
+  private readonly workers: Worker[] = [];
+  private readonly idleWorkers: Worker[] = [];
+  private readonly pendingQueue: PendingTile[] = [];
+  private readonly inflight = new Map<number, PendingTile>();
+  private nextId = 1;
+  private disposed = false;
+
+  public constructor(
+    workerUrl: URL | string,
+    concurrency = navigator.hardwareConcurrency || 2,
+  ) {
+    if (!Number.isInteger(concurrency) || concurrency <= 0) {
+      throw new Error("concurrency must be a positive integer.");
+    }
+
+    for (let index = 0; index < concurrency; index += 1) {
+      const worker = new Worker(workerUrl, { type: "module" });
+      worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
+        this.handleMessage(worker, event.data);
+      };
+      worker.onerror = (event) => {
+        this.rejectWorkerTasks(worker, event.message);
+      };
+      this.workers.push(worker);
+      this.idleWorkers.push(worker);
+    }
+  }
+
+  public runTile(
+    payload: TilePayload,
+    filter: PixelFilter,
+  ): Promise<TileResult> {
+    if (this.disposed) {
+      return Promise.reject(new Error("TileWorkerPool has been disposed."));
+    }
+
+    return new Promise<TileResult>((resolve, reject) => {
+      this.pendingQueue.push({ payload, filter, resolve, reject });
+      this.drainQueue();
+    });
+  }
+
+  public dispose(): void {
+    this.disposed = true;
+    for (const worker of this.workers) {
+      worker.terminate();
+    }
+    for (const task of this.inflight.values()) {
+      task.reject(new Error("TileWorkerPool disposed before tile completed."));
+    }
+    for (const task of this.pendingQueue.splice(0)) {
+      task.reject(new Error("TileWorkerPool disposed before tile started."));
+    }
+    this.inflight.clear();
+    this.idleWorkers.length = 0;
+  }
+
+  private drainQueue(): void {
+    while (this.idleWorkers.length > 0 && this.pendingQueue.length > 0) {
+      const worker = this.idleWorkers.pop();
+      const task = this.pendingQueue.shift();
+      if (worker === undefined || task === undefined) {
+        return;
+      }
+
+      const id = this.nextId;
+      this.nextId += 1;
+      this.inflight.set(id, task);
+      worker.postMessage(
+        {
+          id,
+          filter: task.filter,
+          payload: task.payload,
+        },
+        [task.payload.rgba.buffer],
+      );
+    }
+  }
+
+  private handleMessage(worker: Worker, response: WorkerResponse): void {
+    const task = this.inflight.get(response.id);
+    if (task === undefined) {
+      return;
+    }
+
+    this.inflight.delete(response.id);
+    this.idleWorkers.push(worker);
+
+    if (response.error !== undefined) {
+      task.reject(new Error(response.error));
+    } else if (response.result !== undefined) {
+      task.resolve(response.result);
+    } else {
+      task.reject(new Error("Worker returned an empty response."));
+    }
+
+    this.drainQueue();
+  }
+
+  private rejectWorkerTasks(worker: Worker, message: string): void {
+    for (const [id, task] of this.inflight.entries()) {
+      task.reject(new Error(message));
+      this.inflight.delete(id);
+    }
+    this.idleWorkers.push(worker);
+    this.drainQueue();
+  }
+}

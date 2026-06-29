@@ -1,0 +1,11 @@
+node_modules/
+dist/
+demo-dist/
+coverage/
+.env
+.DS_Store
+npm-debug.log*
+*.tmp
+zig-cache/
+.zig-cache/
+zig-out/
