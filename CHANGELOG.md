@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-06-29
+
 ### Added
 
 - Added the default `phantom` facade and default package export for the common API:
@@ -37,6 +39,9 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Standardized unsupported filter failures as `PhantomError`.
 - Rejects too-small filter overlap before processing to prevent tile-edge
   artifacts.
+- Prevented npm publishing from checking out the obsolete
+  `@paramissionlab/phantom` package metadata by requiring a new tag whose name
+  matches the package version and whose package name uses `@paramission-lab`.
 
 ## [0.1.0] - 2026-06-29
 
@@ -88,4 +93,6 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Unrolled packed Zig invert and grayscale loops and reused 3x3 neighbor indexes in enhancement kernels.
 - Added native Zig alpha-mask compositing.
 
+[Unreleased]: https://github.com/ParamissionLab/phantom/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/ParamissionLab/phantom/compare/v0.1.0...v1.0.0
 [0.1.0]: https://github.com/ParamissionLab/phantom/releases/tag/v0.1.0

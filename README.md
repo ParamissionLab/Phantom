@@ -7,7 +7,7 @@ Maintained by [Paramission Lab](https://github.com/ParamissionLab).
 
 Tile-first RGBA image processing for large browser and Node.js workloads. The SDK combines a deterministic CPU baseline with worker, WebGPU, Zig WebAssembly, and optional AI background-removal paths.
 
-> **Release status:** `0.1.x` is an initial public release. Pin the minor version until the API reaches `1.0.0`.
+> **Release status:** `1.0.0` is the first stable public release. Follow semantic versioning when selecting an upgrade range.
 
 ## Installation
 
@@ -362,11 +362,15 @@ GitHub organizations and npm organizations are separate. The npm publish step
 requires an npm organization or user scope named `paramission-lab`; creating only
 `github.com/ParamissionLab` is not enough.
 
-First release flow for the current `0.1.0` package:
+The original `v0.1.0` tag contains the obsolete `@paramissionlab/phantom`
+package name and must not be moved or reused. Publish the corrected package from
+the current `1.0.0` metadata with a new tag:
 
 ```bash
-git tag v0.1.0
-git push origin main --tags
+git add package.json package-lock.json CHANGELOG.md README.md SECURITY.md .github/workflows/publish-npm.yml Plan.md
+git commit -m "Fix npm release scope validation"
+git tag v1.0.0
+git push origin main --follow-tags
 ```
 
 Future patch release flow:
@@ -377,21 +381,23 @@ git push origin main --follow-tags
 ```
 
 Pushing a `v*.*.*` tag starts the `Publish npm` workflow. The workflow checks
-out that tag, runs `npm run ci`, builds the demo, validates the tarball with
-`npm pack --dry-run`, and publishes with npm provenance.
+out that tag, requires the tag to equal `v<package.version>`, verifies the
+package is named `@paramission-lab/phantom`, runs `npm run ci`, builds the demo,
+validates the tarball with `npm pack --dry-run`, and publishes with npm
+provenance.
 
 You can still create a GitHub Release for the same tag after the tag is pushed.
 Publishing a GitHub Release also starts the same workflow, protected by the
 `npm` environment.
 
 Manual publish from GitHub Actions is also available through the `Publish npm`
-workflow dispatch input. Use a release tag such as `v0.1.0` when possible.
+workflow dispatch input. Use a release tag such as `v1.0.0`.
 
-If publishing fails with `E404 Scope not found`, create the npm organization
+If `npm publish` fails with `E404 Scope not found`, create the npm organization
 `paramission-lab` on npmjs.com or change `package.json` to a scope that already
 exists and that your `NPM_TOKEN` can publish to. After creating the npm
-organization, add the token owner as an owner or publisher for that npm
-organization and rerun the failed workflow.
+organization, add the token owner as an owner or publisher, create a new patch
+release tag, and run the workflow from that tag.
 
 ## Zig WASM Backend
 

@@ -9,8 +9,8 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to publish, for example v0.1.0. Leave empty to publish the selected ref."
-        required: false
+        description: "Release tag to publish, for example v1.0.0."
+        required: true
         type: string
 
 permissions:
@@ -48,26 +48,30 @@ jobs:
           npm run demo:build
           npm pack --dry-run
 
-      - name: Validate npm publishing access
+      - name: Validate release metadata and npm authentication
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
         run: |
           PACKAGE_NAME="$(node -p "require('./package.json').name")"
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          EXPECTED_PACKAGE_NAME="@paramission-lab/phantom"
+          EXPECTED_TAG="v${PACKAGE_VERSION}"
           NPM_USER="$(npm whoami)"
 
           echo "Authenticated to npm as ${NPM_USER}."
 
-          if [[ "${PACKAGE_NAME}" == @*/* ]]; then
-            NPM_SCOPE="${PACKAGE_NAME%%/*}"
-            NPM_SCOPE="${NPM_SCOPE#@}"
-
-            if ! npm org ls "${NPM_SCOPE}" >/dev/null 2>&1; then
-              echo "::error title=Missing npm scope::npm scope @${NPM_SCOPE} does not exist as an npm organization, or this token cannot access it. Create the npm organization '${NPM_SCOPE}' on npmjs.com and add this token as an owner/publisher before publishing ${PACKAGE_NAME}."
-              exit 1
-            fi
-
-            echo "npm scope @${NPM_SCOPE} exists and is accessible."
+          if [[ "${PACKAGE_NAME}" != "${EXPECTED_PACKAGE_NAME}" ]]; then
+            echo "::error title=Unexpected package name::Expected ${EXPECTED_PACKAGE_NAME}, but the checked-out ref contains ${PACKAGE_NAME}. Create a new release tag from the commit that contains the corrected package scope."
+            exit 1
           fi
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+          if [[ "${RELEASE_TAG}" != "${EXPECTED_TAG}" ]]; then
+            echo "::error title=Release tag mismatch::Expected tag ${EXPECTED_TAG} for ${PACKAGE_NAME}@${PACKAGE_VERSION}, but the workflow requested ${RELEASE_TAG:-no tag}."
+            exit 1
+          fi
+
+          echo "Validated ${PACKAGE_NAME}@${PACKAGE_VERSION} from ${EXPECTED_TAG}."
 
       - name: Publish to npmjs.com
         run: |
