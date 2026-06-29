@@ -11,7 +11,6 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 - GitHub organization documentation, contribution guidance, and a security policy.
 - Direct GitHub URL installation through an npm `prepare` build lifecycle.
-- Short npm alias installation for `phantom` imports while publishing under `@paramission-lab/phantom`.
 - GitHub Actions npm publish workflow for release-driven npmjs.com deployment.
 - Public AI `preload()` API with shared concurrent model initialization.
 - Short `createPhantomAi()` alias for concise branded SDK calls.
@@ -30,7 +29,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 ### Changed
 
 - Added Paramission Lab repository, issue tracker, homepage, and package metadata.
-- Standardized the SDK brand and recommended import path as `phantom`, with the npm package published as `@paramission-lab/phantom`.
+- Standardized the SDK brand as `phantom` and the npm package name as `@paramission-lab/phantom`.
 - Switched the npm package to the Paramission Lab scope because the unscoped `phantom` name is already occupied on npm.
 - Renamed the public SDK error class to `PhantomError` so exported API names no longer carry the old image-specific branding.
 - Established the public package and SDK surface as `phantom`.
