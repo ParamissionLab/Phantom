@@ -5,6 +5,39 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Added the default `phantom` facade and default package export for the common API:
+  `makeImage`, `cropImage`, `resizeImage`, `applyFilter`, `applyFilters`,
+  `removeImageBackground`, `applyMask`, and `replaceBackground`.
+- Added short named helpers for common raw RGBA workflows so callers can avoid
+  lower-level tile and overlap configuration in basic usage.
+- Added raw RGBA image utilities for allocation, defensive cloning, cropping,
+  and nearest-neighbor or bilinear resizing.
+- Added `processRawImageWithStats()` and `processTileSourceWithStats()` for
+  progress UIs, logging, and runtime health checks.
+- Added `processRawImagePipeline()` for applying multiple filters as a reusable
+  processing recipe.
+- Added `removeBackgroundAi()` and the default `@paramission-lab/phantom/ai`
+  facade so browser AI background removal can run in one call.
+
+### Changed
+
+- Made safe filter overlap selection the default path for the high-level
+  filtering helpers.
+- Updated README examples to start with the default `phantom` import and a
+  shorter AI background-removal flow.
+- Kept lower-level APIs available for advanced tile, source/sink, mask, and
+  batch AI workflows.
+
+### Fixed
+
+- Standardized unsupported filter failures as `PhantomError`.
+- Rejects too-small filter overlap before processing to prevent tile-edge
+  artifacts.
+
 ## [0.1.0] - 2026-06-29
 
 ### Added
