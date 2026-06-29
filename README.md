@@ -14,7 +14,7 @@ Tile-first RGBA image processing for large browser and Node.js workloads. The SD
 From the npm registry:
 
 ```bash
-npm install @paramissionlab/phantom
+npm install @paramission-lab/phantom
 ```
 
 The unscoped `phantom` package name is already used on npm, so the public npm
@@ -35,7 +35,7 @@ npm install git+ssh://git@github.com/ParamissionLab/phantom.git#v0.1.0
 
 Use a release tag or full commit SHA instead of `main` so installs remain reproducible. npm installs development dependencies and runs the package `prepare` script to compile TypeScript when installing from Git. The optional Zig WASM binary is not compiled during Git installation; build it explicitly with Zig when that backend is required.
 
-The AI runtime is an optional dependency and is initialized only when `@paramissionlab/phantom/ai` is used. Model weights are not included in the npm package.
+The AI runtime is an optional dependency and is initialized only when `@paramission-lab/phantom/ai` is used. Model weights are not included in the npm package.
 
 ## Features
 
@@ -61,7 +61,7 @@ import {
   PhantomError,
   processRawImage,
   type RawRgbaImage,
-} from "@paramissionlab/phantom";
+} from "@paramission-lab/phantom";
 
 const input: RawRgbaImage = {
   width: 2,
@@ -84,18 +84,18 @@ try {
 
 ## Package Entry Points
 
-| Import                            | Purpose                                                        |
-| --------------------------------- | -------------------------------------------------------------- |
-| `@paramissionlab/phantom`         | Core tiling, filters, masks, pipeline, planning, and utilities |
-| `@paramissionlab/phantom/ai`      | Lazy AI subject-mask generation                                |
-| `@paramissionlab/phantom/gpu`     | WebGPU compute and WebGPU/WebGL renderers                      |
-| `@paramissionlab/phantom/wasm`    | Zig WebAssembly loader and accelerated kernel adapter          |
-| `@paramissionlab/phantom/workers` | Worker pool and shared tile-buffer helpers                     |
+| Import                             | Purpose                                                        |
+| ---------------------------------- | -------------------------------------------------------------- |
+| `@paramission-lab/phantom`         | Core tiling, filters, masks, pipeline, planning, and utilities |
+| `@paramission-lab/phantom/ai`      | Lazy AI subject-mask generation                                |
+| `@paramission-lab/phantom/gpu`     | WebGPU compute and WebGPU/WebGL renderers                      |
+| `@paramission-lab/phantom/wasm`    | Zig WebAssembly loader and accelerated kernel adapter          |
+| `@paramission-lab/phantom/workers` | Worker pool and shared tile-buffer helpers                     |
 
 Remove a mostly-uniform background and keep alpha for PNG export:
 
 ```ts
-import { removeBackground } from "@paramissionlab/phantom";
+import { removeBackground } from "@paramission-lab/phantom";
 
 const cutout = removeBackground(input, {
   threshold: 38,
@@ -107,7 +107,7 @@ const cutout = removeBackground(input, {
 Apply a mask from any segmentation provider:
 
 ```ts
-import { applyAlphaMask } from "@paramissionlab/phantom";
+import { applyAlphaMask } from "@paramission-lab/phantom";
 
 const cutout = applyAlphaMask(input, {
   width: maskWidth,
@@ -123,8 +123,8 @@ uses WebGPU when available, falls back to quantized WASM, and reuses the loaded
 pipeline across images.
 
 ```ts
-import { applyAlphaMask } from "@paramissionlab/phantom";
-import { createPhantomAi } from "@paramissionlab/phantom/ai";
+import { applyAlphaMask } from "@paramission-lab/phantom";
+import { createPhantomAi } from "@paramission-lab/phantom/ai";
 
 const phantom = createPhantomAi();
 await phantom.preload();
@@ -226,8 +226,12 @@ repository settings before the first release:
 2. Add it to GitHub Actions secrets as `NPM_TOKEN`.
 3. Create a GitHub Environment named `npm` and require reviewer approval if the
    package should not publish automatically.
-4. Confirm the npm organization scope `@paramissionlab` exists and that the
+4. Confirm the npm organization scope `@paramission-lab` exists and that the
    `NPM_TOKEN` account has publish access to it.
+
+GitHub organizations and npm organizations are separate. The npm publish step
+requires an npm organization or user scope named `paramission-lab`; creating only
+`github.com/ParamissionLab` is not enough.
 
 First release flow for the current `0.1.0` package:
 
@@ -254,6 +258,12 @@ Publishing a GitHub Release also starts the same workflow, protected by the
 Manual publish from GitHub Actions is also available through the `Publish npm`
 workflow dispatch input. Use a release tag such as `v0.1.0` when possible.
 
+If publishing fails with `E404 Scope not found`, create the npm organization
+`paramission-lab` on npmjs.com or change `package.json` to a scope that already
+exists and that your `NPM_TOKEN` can publish to. After creating the npm
+organization, add the token owner as an owner or publisher for that npm
+organization and rerun the failed workflow.
+
 ## Zig WASM Backend
 
 Build the kernel:
@@ -266,7 +276,7 @@ npm run build:wasm
 Instantiate it in the browser or another WebAssembly host:
 
 ```ts
-import { instantiateZigBackend } from "@paramissionlab/phantom/wasm";
+import { instantiateZigBackend } from "@paramission-lab/phantom/wasm";
 
 const bytes = await fetch("/phantom_kernel.wasm").then((response) =>
   response.arrayBuffer(),
@@ -278,7 +288,7 @@ const output = backend.process(input, "grayscale");
 ## Browser Capability Selection
 
 ```ts
-import { detectCapabilities } from "@paramissionlab/phantom/gpu";
+import { detectCapabilities } from "@paramission-lab/phantom/gpu";
 
 const capabilities = detectCapabilities();
 ```

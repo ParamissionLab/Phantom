@@ -48,6 +48,27 @@ jobs:
           npm run demo:build
           npm pack --dry-run
 
+      - name: Validate npm publishing access
+        run: |
+          PACKAGE_NAME="$(node -p "require('./package.json').name")"
+          NPM_USER="$(npm whoami)"
+
+          echo "Authenticated to npm as ${NPM_USER}."
+
+          if [[ "${PACKAGE_NAME}" == @*/* ]]; then
+            NPM_SCOPE="${PACKAGE_NAME%%/*}"
+            NPM_SCOPE="${NPM_SCOPE#@}"
+
+            if ! npm org ls "${NPM_SCOPE}" >/dev/null 2>&1; then
+              echo "::error title=Missing npm scope::npm scope @${NPM_SCOPE} does not exist as an npm organization, or this token cannot access it. Create the npm organization '${NPM_SCOPE}' on npmjs.com and add this token as an owner/publisher before publishing ${PACKAGE_NAME}."
+              exit 1
+            fi
+
+            echo "npm scope @${NPM_SCOPE} exists and is accessible."
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
       - name: Publish to npmjs.com
         run: |
           PACKAGE_NAME="$(node -p "require('./package.json').name")"

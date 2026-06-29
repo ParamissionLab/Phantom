@@ -280,9 +280,9 @@ app.innerHTML = `
   estimateBackgroundPalette,
   describeProcessingPlan,
   listPixelFilters
-} from "@paramissionlab/phantom";
+} from "@paramission-lab/phantom";
 import { createPhantomAi }
-  from "@paramissionlab/phantom/ai";</code></pre>
+  from "@paramission-lab/phantom/ai";</code></pre>
         </section>
       </aside>
     </section>

@@ -19,17 +19,17 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Overlap-aware tile planning that prevents convolution seams.
 - Fixed-capacity stream ingestion, transferable worker payloads, a worker pool, and shared tile buffers.
 - WebGPU compute processing plus WebGPU and WebGL rendering adapters.
-- Zig WebAssembly kernels and the `@paramissionlab/phantom/wasm` adapter.
+- Zig WebAssembly kernels and the `@paramission-lab/phantom/wasm` adapter.
 - Fuzzy edge-connected background removal with multi-color border sampling, subject protection, and feathering.
 - Provider-neutral alpha-mask resizing, color-guided refinement, compositing, and background replacement.
-- Optional `@paramissionlab/phantom/ai` entry point with lazy model loading, WebGPU acceleration, CPU/WASM fallback, browser caching, progress reporting, and explicit resource disposal.
+- Optional `@paramission-lab/phantom/ai` entry point with lazy model loading, WebGPU acceleration, CPU/WASM fallback, browser caching, progress reporting, and explicit resource disposal.
 - Upload-based Tailwind CSS demo with before/after comparison, transparent PNG export, runtime capabilities, memory planning, and SDK feature controls.
 - Strict TypeScript, ESLint, Prettier, Vitest, GitHub Actions CI, and npm package exports.
 
 ### Changed
 
 - Added Paramission Lab repository, issue tracker, homepage, and package metadata.
-- Standardized the SDK brand as `phantom` and the npm package name as `@paramissionlab/phantom`.
+- Standardized the SDK brand as `phantom` and the npm package name as `@paramission-lab/phantom`.
 - Switched the npm package to the Paramission Lab scope because the unscoped `phantom` name is already occupied on npm.
 - Renamed the public SDK error class to `PhantomError` so exported API names no longer carry the old image-specific branding.
 - Established the public package and SDK surface as `phantom`.
