@@ -40,6 +40,7 @@ import {
   createAiBackgroundRemover,
   removeBackgroundAi,
 } from "../src/ai/index.js";
+import { DEFAULT_ALPHA_MASK_REFINEMENT_OPTIONS } from "../src/index.js";
 
 describe("AI background remover", () => {
   beforeEach(() => {
@@ -102,6 +103,62 @@ describe("AI background remover", () => {
     expect(result.data[3]).toBe(0);
     expect(result.data[7]).toBeGreaterThan(0);
     expect(mocks.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses the stable demo refinement preset by default", async () => {
+    mocks.segmenter.mockResolvedValueOnce({
+      width: 2,
+      height: 1,
+      channels: 1,
+      data: Uint8Array.from([2, 10]),
+    });
+    const canvas = new MockCanvas(
+      2,
+      1,
+      Uint8ClampedArray.from([10, 20, 30, 255, 40, 50, 60, 255]),
+    );
+
+    const result = await removeBackgroundAi(
+      canvas as unknown as OffscreenCanvas,
+      { backend: "wasm" },
+    );
+
+    expect(DEFAULT_ALPHA_MASK_REFINEMENT_OPTIONS).toEqual({
+      threshold: 4,
+      softness: 12,
+      featherRadius: 2,
+      edgeSensitivity: 48,
+    });
+    expect(result.data[3]).toBe(0);
+    expect(result.data[7]).toBeGreaterThan(0);
+    expect(result.data[7]).toBeLessThan(255);
+  });
+
+  it("starts model initialization while a remote image is loading", async () => {
+    const originalFetch = globalThis.fetch;
+    let rejectFetch: ((reason: Error) => void) | undefined;
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<Response>((_resolve, reject) => {
+          rejectFetch = reject;
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const pending = removeBackgroundAi("image.png", { backend: "wasm" });
+
+      await vi.waitFor(() => {
+        expect(mocks.pipeline).toHaveBeenCalledTimes(1);
+      });
+      expect(fetchMock).toHaveBeenCalledWith("image.png");
+
+      rejectFetch?.(new Error("image download failed"));
+      await expect(pending).rejects.toThrow("image download failed");
+      expect(mocks.dispose).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.stubGlobal("fetch", originalFetch);
+    }
   });
 
   it("exposes a default AI facade", async () => {

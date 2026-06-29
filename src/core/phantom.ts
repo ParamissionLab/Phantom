@@ -1,12 +1,9 @@
 import {
   applyAlphaMask,
-  removeBackground,
   replaceTransparentBackground,
   type AlphaMask,
   type AlphaMaskRefinementOptions,
   type AlphaMaskResult,
-  type BackgroundRemovalOptions,
-  type BackgroundRemovalResult,
   type RgbColor,
 } from "./background.js";
 import { getPixelFilterOverlap } from "./filters.js";
@@ -97,16 +94,6 @@ export async function applyFilters(
 }
 
 /**
- * Removes an image background using the deterministic built-in remover.
- */
-export function removeImageBackground(
-  image: RawRgbaImage,
-  options: BackgroundRemovalOptions = {},
-): BackgroundRemovalResult {
-  return removeBackground(image, options);
-}
-
-/**
  * Applies a provider-generated alpha mask using edge-aware refinement.
  */
 export function applyMask(
@@ -133,7 +120,6 @@ export const phantom = {
   resizeImage,
   applyFilter,
   applyFilters,
-  removeImageBackground,
   applyMask,
   replaceBackground,
 } as const;

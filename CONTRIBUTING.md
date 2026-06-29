@@ -31,7 +31,7 @@ npm run dev
 5. Update `README.md` for public API changes and add an entry under `CHANGELOG.md` > `Unreleased`.
 6. Describe compatibility, memory, performance, and licensing effects in the pull request.
 
-Release tags must use semantic versions such as `v0.1.0`. Consumers installing directly from GitHub should pin a release tag or full commit SHA.
+Release tags must use semantic versions such as `v1.0.1`. Consumers installing directly from GitHub should pin a release tag or full commit SHA.
 
 Do not commit generated `dist/`, `demo-dist/`, model weights, caches, or local environment files.
 
