@@ -173,21 +173,18 @@ use self-hosted model files before creating the remover.
 
 The core does not depend on DOM APIs:
 
-```mermaid
-flowchart LR
-  A["Local file / decoder"] --> B["TileSource"]
-  B --> C["Overlap tile planner"]
-  C --> D["CPU fixed-point kernels"]
-  C --> E["Worker pool"]
-  C --> F["Zig WASM backend"]
-  C --> I["WebGPU compute backend"]
-  C --> J["AI alpha mask provider"]
-  D --> G["TileSink"]
-  E --> G
-  F --> G
-  I --> G
-  G --> H["WebGPU or WebGL renderer"]
-```
+| Layer                    | Responsibility                                                             |
+| ------------------------ | -------------------------------------------------------------------------- |
+| Local file or decoder    | Reads source pixels from browser, Node.js, or a custom image decoder.      |
+| `TileSource`             | Exposes bounded rectangular reads without forcing a full-frame allocation. |
+| Overlap tile planner     | Splits huge images into convolution-safe tiles.                            |
+| CPU fixed-point kernels  | Provides the deterministic correctness baseline.                           |
+| Worker pool              | Runs transferable tile jobs off the main browser thread.                   |
+| Zig WASM backend         | Runs compiled kernels from `dist/phantom_kernel.wasm`.                     |
+| WebGPU compute backend   | Accelerates tile processing when WebGPU is available.                      |
+| AI alpha mask provider   | Generates subject masks for people, animals, and complex scenes.           |
+| `TileSink`               | Writes processed tile output to any storage or encoder integration.        |
+| WebGPU or WebGL renderer | Uploads processed RGBA data for browser preview.                           |
 
 Compressed image streaming is intentionally kept outside the core. Integrate a decoder by implementing `TileSource.read(rect)` and `TileSink.write(rect, data)`. This keeps memory bounded and avoids coupling the pipeline to one image codec.
 
