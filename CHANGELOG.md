@@ -7,6 +7,34 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-06-30
+
+### Added
+
+- Added browser image format helpers for popular PNG, JPEG, WebP, AVIF, BMP,
+  GIF, and TIFF identification.
+- Added `convertImageFile()`, `optimizeImageFile()`, and `encodeRawImage()` for
+  browser encoder based conversion and clarity-preserving re-encoding.
+- Added `createPhantomAssetPlan()` and the default facade `planAsset()` helper
+  for Phantom-specific format, filter, tile, and memory recommendations.
+- Added `boxBlur3x3` and `unsharpMask` filters across CPU, worker, WebGPU, and
+  Zig WASM routing.
+
+### Changed
+
+- Removed the deterministic fuzzy background-removal API from the public core
+  package. Background removal now uses the downloaded AI model path plus
+  provider-neutral alpha-mask utilities.
+- Updated the default `phantom` facade to expose `applyMask`,
+  `replaceBackground`, `planAsset`, `convertImage`, and `optimizeImage`.
+- Renamed the Zig source entry point to `zig/src/phantom-kernel.zig`.
+- Excluded Zig source files from the npm package `files` list so installs do not
+  include the development `zig/` tree in `node_modules`.
+
+### Fixed
+
+- Updated demo and documentation to remove the old fuzzy fallback path.
+
 ## [1.0.0] - 2026-06-29
 
 ### Added
@@ -93,6 +121,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Unrolled packed Zig invert and grayscale loops and reused 3x3 neighbor indexes in enhancement kernels.
 - Added native Zig alpha-mask compositing.
 
-[Unreleased]: https://github.com/ParamissionLab/phantom/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/ParamissionLab/phantom/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/ParamissionLab/phantom/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/ParamissionLab/phantom/compare/v0.1.0...v1.0.0
 [0.1.0]: https://github.com/ParamissionLab/phantom/releases/tag/v0.1.0

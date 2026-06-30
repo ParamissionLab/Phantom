@@ -18,6 +18,18 @@ export interface WasmKernelExports extends WebAssembly.Exports {
     width: number,
     height: number,
   ) => void;
+  readonly rgba_box_blur3x3: (
+    inputPtr: number,
+    outputPtr: number,
+    width: number,
+    height: number,
+  ) => void;
+  readonly rgba_unsharp_mask: (
+    inputPtr: number,
+    outputPtr: number,
+    width: number,
+    height: number,
+  ) => void;
   readonly rgba_apply_alpha_mask: (
     inputPtr: number,
     maskPtr: number,

@@ -1,15 +1,25 @@
 import {
   applyAlphaMask,
-  removeBackground,
   replaceTransparentBackground,
   type AlphaMask,
   type AlphaMaskRefinementOptions,
   type AlphaMaskResult,
-  type BackgroundRemovalOptions,
-  type BackgroundRemovalResult,
   type RgbColor,
 } from "./background.js";
+import {
+  createPhantomAssetPlan,
+  type PhantomAssetPlan,
+  type PhantomAssetPlanOptions,
+} from "./asset-plan.js";
 import { getPixelFilterOverlap } from "./filters.js";
+import {
+  convertImageFile,
+  optimizeImageFile,
+  type BrowserImageInput,
+  type ImageConversionResult,
+  type ImageEncodeOptions,
+  type ImageOptimizationOptions,
+} from "./image-codecs.js";
 import {
   createRawRgbaImage,
   cropRawImage,
@@ -97,16 +107,6 @@ export async function applyFilters(
 }
 
 /**
- * Removes an image background using the deterministic built-in remover.
- */
-export function removeImageBackground(
-  image: RawRgbaImage,
-  options: BackgroundRemovalOptions = {},
-): BackgroundRemovalResult {
-  return removeBackground(image, options);
-}
-
-/**
  * Applies a provider-generated alpha mask using edge-aware refinement.
  */
 export function applyMask(
@@ -127,15 +127,47 @@ export function replaceBackground(
   return replaceTransparentBackground(image, color);
 }
 
+/**
+ * Builds a Phantom-specific image job recipe for filters, tiles, and encoding.
+ */
+export function planAsset(
+  image: RawRgbaImage,
+  options: PhantomAssetPlanOptions = {},
+): PhantomAssetPlan {
+  return createPhantomAssetPlan(image, options);
+}
+
+/**
+ * Converts browser image inputs between common web image formats.
+ */
+export function convertImage(
+  input: BrowserImageInput,
+  options: ImageEncodeOptions = {},
+): Promise<ImageConversionResult> {
+  return convertImageFile(input, options);
+}
+
+/**
+ * Re-encodes browser image inputs with conservative clarity-preserving defaults.
+ */
+export function optimizeImage(
+  input: BrowserImageInput,
+  options: ImageOptimizationOptions = {},
+): Promise<ImageConversionResult> {
+  return optimizeImageFile(input, options);
+}
+
 export const phantom = {
   makeImage,
   cropImage,
   resizeImage,
   applyFilter,
   applyFilters,
-  removeImageBackground,
   applyMask,
   replaceBackground,
+  planAsset,
+  convertImage,
+  optimizeImage,
 } as const;
 
 function toProcessOptions(

@@ -5,8 +5,8 @@ import phantomDefault, {
   applyMask,
   cropImage,
   makeImage,
+  planAsset,
   phantom,
-  removeImageBackground,
   replaceBackground,
   resizeImage,
   type RawRgbaImage,
@@ -71,14 +71,19 @@ describe("default phantom API", () => {
     expect(Array.from(output.data)).toEqual([237, 237, 237, 255]);
   });
 
-  it("uses simple aliases for masks and backgrounds", () => {
-    const cutout = removeImageBackground(
+  it("uses simple aliases for masks, backgrounds, and asset planning", () => {
+    const cutout = applyMask(
       {
         width: 1,
         height: 1,
         data: Uint8Array.from([255, 255, 255, 255]),
       },
-      { threshold: 8, softness: 0, featherRadius: 0 },
+      {
+        width: 1,
+        height: 1,
+        data: Uint8Array.of(0),
+      },
+      { threshold: 1, softness: 0, featherRadius: 0 },
     );
     const masked = applyMask(sampleImage(), {
       width: 1,
@@ -86,9 +91,14 @@ describe("default phantom API", () => {
       data: Uint8Array.of(128),
     });
     const flattened = replaceBackground(cutout, { r: 0, g: 0, b: 0 });
+    const plan = planAsset(sampleImage());
 
     expect(cutout.removedPixels).toBe(1);
     expect(masked.data[3]).toBeGreaterThan(0);
     expect(flattened.data[3]).toBe(255);
+    expect(plan.encode.format).toBe("jpeg");
+    expect(phantom.planAsset(sampleImage()).filters).toContain(
+      "smoothEnhance",
+    );
   });
 });

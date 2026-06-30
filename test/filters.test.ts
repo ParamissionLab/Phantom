@@ -13,6 +13,8 @@ describe("pixel filter profiles", () => {
       "identity",
       "smoothEnhance",
       "sharpen3x3",
+      "boxBlur3x3",
+      "unsharpMask",
       "grayscale",
       "invert",
     ]);
@@ -24,6 +26,8 @@ describe("pixel filter profiles", () => {
   it("reports overlap radius for tile-safe filters", () => {
     expect(getPixelFilterOverlap("smoothEnhance")).toBe(1);
     expect(getPixelFilterOverlap("sharpen3x3")).toBe(1);
+    expect(getPixelFilterOverlap("boxBlur3x3")).toBe(1);
+    expect(getPixelFilterOverlap("unsharpMask")).toBe(1);
     expect(getPixelFilterOverlap("invert")).toBe(0);
   });
 

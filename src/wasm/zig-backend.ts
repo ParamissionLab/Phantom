@@ -84,6 +84,22 @@ class ZigWasmBackend implements WasmKernelBackend {
           image.height,
         );
         break;
+      case "boxBlur3x3":
+        this.exports.rgba_box_blur3x3(
+          inputPtr,
+          outputPtr,
+          image.width,
+          image.height,
+        );
+        break;
+      case "unsharpMask":
+        this.exports.rgba_unsharp_mask(
+          inputPtr,
+          outputPtr,
+          image.width,
+          image.height,
+        );
+        break;
       default:
         filter satisfies never;
         throw new PhantomError(`Unsupported WASM filter: ${String(filter)}`);
@@ -184,6 +200,8 @@ function validateExports(
     "rgba_invert",
     "rgba_grayscale",
     "rgba_sharpen3x3",
+    "rgba_box_blur3x3",
+    "rgba_unsharp_mask",
     "rgba_apply_alpha_mask",
     "rgba_filter_tile",
     "rgba_estimate_tile_bytes",
@@ -206,6 +224,10 @@ function filterToCode(filter: PixelFilter): number {
       return 4;
     case "sharpen3x3":
       return 3;
+    case "boxBlur3x3":
+      return 5;
+    case "unsharpMask":
+      return 6;
     default:
       filter satisfies never;
       throw new PhantomError(`Unsupported WASM filter: ${String(filter)}`);

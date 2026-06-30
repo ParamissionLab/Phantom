@@ -5,19 +5,35 @@ export {
 export { applyFilterToTile } from "./core/kernels.js";
 export {
   applyAlphaMask,
-  estimateBackgroundColor,
-  estimateBackgroundPalette,
   refineAlphaMask,
-  removeBackground,
   replaceTransparentBackground,
   type AlphaMask,
   type AlphaMaskRefinementOptions,
   type AlphaMaskResult,
-  type BackgroundRemovalDiagnostics,
-  type BackgroundRemovalOptions,
-  type BackgroundRemovalResult,
   type RgbColor,
 } from "./core/background.js";
+export {
+  createPhantomAssetPlan,
+  type PhantomAssetGoal,
+  type PhantomAssetPlan,
+  type PhantomAssetPlanOptions,
+} from "./core/asset-plan.js";
+export {
+  canEncodeImageFormat,
+  convertImageFile,
+  encodeRawImage,
+  getImageFormatProfile,
+  listImageFormats,
+  normalizeImageFormat,
+  optimizeImageFile,
+  type BrowserEncodableImageFormat,
+  type BrowserImageInput,
+  type ImageConversionResult,
+  type ImageEncodeOptions,
+  type ImageFileFormat,
+  type ImageFormatProfile,
+  type ImageOptimizationOptions,
+} from "./core/image-codecs.js";
 export {
   getPixelFilterOverlap,
   getPixelFilterProfile,
@@ -46,10 +62,12 @@ export {
   applyFilter,
   applyFilters,
   applyMask,
+  convertImage,
   cropImage,
   makeImage,
+  optimizeImage,
   phantom,
-  removeImageBackground,
+  planAsset,
   replaceBackground,
   resizeImage,
   type FilterOptions,
@@ -86,6 +104,20 @@ export {
   type WasmKernelBackend,
   type WasmKernelExports,
 } from "./wasm/index.js";
+export {
+  BrowserBackgroundRemover,
+  createAiBackgroundRemover,
+  createPhantomAi,
+  removeBackgroundAi,
+  type AiBackend,
+  type AiBackendPreference,
+  type AiBackgroundRemovalOptions,
+  type AiBackgroundRemovalResult,
+  type AiBackgroundRemoverOptions,
+  type AiMaskResult,
+  type AiPreloadResult,
+  type AiProgress,
+} from "./ai/index.js";
 export {
   SharedTileBuffer,
   TileWorkerPool,

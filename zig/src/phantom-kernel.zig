@@ -4,6 +4,8 @@ const FILTER_INVERT: u32 = 1;
 const FILTER_GRAYSCALE: u32 = 2;
 const FILTER_SHARPEN3X3: u32 = 3;
 const FILTER_SMOOTH_ENHANCE: u32 = 4;
+const FILTER_BOX_BLUR3X3: u32 = 5;
+const FILTER_UNSHARP_MASK: u32 = 6;
 
 export fn rgba_invert(input_ptr: [*]const u8, output_ptr: [*]u8, pixels: u32) void {
     invertPacked(input_ptr, output_ptr, @intCast(pixels));
@@ -15,6 +17,14 @@ export fn rgba_grayscale(input_ptr: [*]const u8, output_ptr: [*]u8, pixels: u32)
 
 export fn rgba_sharpen3x3(input_ptr: [*]const u8, output_ptr: [*]u8, width: u32, height: u32) void {
     sharpenTile(input_ptr, output_ptr, @intCast(width), @intCast(height), 0, 0, @intCast(width), @intCast(height));
+}
+
+export fn rgba_box_blur3x3(input_ptr: [*]const u8, output_ptr: [*]u8, width: u32, height: u32) void {
+    boxBlurTile(input_ptr, output_ptr, @intCast(width), @intCast(height), 0, 0, @intCast(width), @intCast(height));
+}
+
+export fn rgba_unsharp_mask(input_ptr: [*]const u8, output_ptr: [*]u8, width: u32, height: u32) void {
+    unsharpMaskTile(input_ptr, output_ptr, @intCast(width), @intCast(height), 0, 0, @intCast(width), @intCast(height));
 }
 
 export fn rgba_apply_alpha_mask(input_ptr: [*]const u8, mask_ptr: [*]const u8, output_ptr: [*]u8, pixels: u32) void {
@@ -56,6 +66,8 @@ export fn rgba_filter_tile(
         FILTER_GRAYSCALE => grayscaleTile(input_ptr, output_ptr, in_w, out_x, out_y, out_w, out_h),
         FILTER_SHARPEN3X3 => sharpenTile(input_ptr, output_ptr, in_w, in_h, out_x, out_y, out_w, out_h),
         FILTER_SMOOTH_ENHANCE => smoothEnhanceTile(input_ptr, output_ptr, in_w, in_h, out_x, out_y, out_w, out_h),
+        FILTER_BOX_BLUR3X3 => boxBlurTile(input_ptr, output_ptr, in_w, in_h, out_x, out_y, out_w, out_h),
+        FILTER_UNSHARP_MASK => unsharpMaskTile(input_ptr, output_ptr, in_w, in_h, out_x, out_y, out_w, out_h),
         else => {},
     }
 }
@@ -176,6 +188,14 @@ inline fn sharpenChannel(input_ptr: [*]const u8, center: usize, left: usize, rig
 }
 
 fn smoothEnhanceTile(input_ptr: [*]const u8, output_ptr: [*]u8, input_width: usize, input_height: usize, offset_x: usize, offset_y: usize, width: usize, height: usize) void {
+    detailEnhanceTile(input_ptr, output_ptr, input_width, input_height, offset_x, offset_y, width, height, 3, 8);
+}
+
+fn unsharpMaskTile(input_ptr: [*]const u8, output_ptr: [*]u8, input_width: usize, input_height: usize, offset_x: usize, offset_y: usize, width: usize, height: usize) void {
+    detailEnhanceTile(input_ptr, output_ptr, input_width, input_height, offset_x, offset_y, width, height, 5, 8);
+}
+
+fn detailEnhanceTile(input_ptr: [*]const u8, output_ptr: [*]u8, input_width: usize, input_height: usize, offset_x: usize, offset_y: usize, width: usize, height: usize, detail_num: i32, detail_den: i32) void {
     var y: usize = 0;
     while (y < height) : (y += 1) {
         var x: usize = 0;
@@ -191,7 +211,28 @@ fn smoothEnhanceTile(input_ptr: [*]const u8, output_ptr: [*]u8, input_width: usi
                 const current: i32 = input_ptr[center + channel];
                 const blur: i32 = gaussianBlurChannel(input_ptr, neighbors, channel);
                 const detail = current - blur;
-                output_ptr[dest + channel] = clampU8(current + @divTrunc(detail * 3, 8));
+                output_ptr[dest + channel] = clampU8(current + @divTrunc(detail * detail_num, detail_den));
+            }
+
+            output_ptr[dest + 3] = input_ptr[center + 3];
+        }
+    }
+}
+
+fn boxBlurTile(input_ptr: [*]const u8, output_ptr: [*]u8, input_width: usize, input_height: usize, offset_x: usize, offset_y: usize, width: usize, height: usize) void {
+    var y: usize = 0;
+    while (y < height) : (y += 1) {
+        var x: usize = 0;
+        while (x < width) : (x += 1) {
+            const source_x = offset_x + x;
+            const source_y = offset_y + y;
+            const center = pixelIndex(source_x, source_y, input_width);
+            const dest = (y * width + x) * CHANNELS;
+            const neighbors = sample3x3Indexes(input_width, input_height, source_x, source_y);
+            var channel: usize = 0;
+
+            while (channel < 3) : (channel += 1) {
+                output_ptr[dest + channel] = boxBlurChannel(input_ptr, neighbors, channel);
             }
 
             output_ptr[dest + 3] = input_ptr[center + 3];
@@ -237,6 +278,19 @@ inline fn gaussianBlurChannel(input_ptr: [*]const u8, indexes: Sample3x3, channe
     const right: i32 = input_ptr[indexes.right + channel];
     const corners: i32 = input_ptr[indexes.top_left + channel] + input_ptr[indexes.top_right + channel] + input_ptr[indexes.bottom_left + channel] + input_ptr[indexes.bottom_right + channel];
     return @divTrunc(corners + (top + bottom + left + right) * 2 + center * 4, 16);
+}
+
+inline fn boxBlurChannel(input_ptr: [*]const u8, indexes: Sample3x3, channel: usize) u8 {
+    const total: u32 = input_ptr[indexes.top_left + channel] +
+        input_ptr[indexes.top + channel] +
+        input_ptr[indexes.top_right + channel] +
+        input_ptr[indexes.left + channel] +
+        input_ptr[indexes.center + channel] +
+        input_ptr[indexes.right + channel] +
+        input_ptr[indexes.bottom_left + channel] +
+        input_ptr[indexes.bottom + channel] +
+        input_ptr[indexes.bottom_right + channel];
+    return @intCast((total + 4) / 9);
 }
 
 fn pixelIndex(x: usize, y: usize, width: usize) usize {

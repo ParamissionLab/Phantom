@@ -7,7 +7,7 @@ Maintained by [Paramission Lab](https://github.com/ParamissionLab).
 
 Tile-first RGBA image processing for large browser and Node.js workloads. The SDK combines a deterministic CPU baseline with worker, WebGPU, Zig WebAssembly, and optional AI background-removal paths.
 
-> **Release status:** `1.0.0` is the first stable public release. Follow semantic versioning when selecting an upgrade range.
+> **Release status:** `1.0.1` is the current stable public release. Follow semantic versioning when selecting an upgrade range.
 
 ## Installation
 
@@ -41,14 +41,15 @@ The AI runtime is an optional dependency and is initialized only when `@paramiss
 
 - Fixed-capacity stream ingestion through `FixedByteRingBuffer`.
 - Overlap-aware tiling for convolution filters without tile-edge artifacts.
-- Fixed-point RGBA kernels: identity, invert, grayscale, smooth enhance, and sharpen 3x3.
+- Fixed-point RGBA kernels: identity, invert, grayscale, smooth enhance, sharpen 3x3, blur 3x3, and unsharp mask.
 - Discoverable filter profiles with overlap and backend metadata.
 - Progress callbacks and runtime stats for tile-processing health checks.
 - Multi-step raw-image filter pipelines for reusable processing recipes.
 - Raw RGBA allocation, cloning, cropping, and resizing utilities.
-- Default helpers such as `applyFilter`, `resizeImage`, and `removeImageBackground`.
-- Fuzzy edge-connected background removal for plain or product backdrops.
-- Optional browser AI background removal for people, animals, and complex scenes.
+- Default helpers such as `applyFilter`, `resizeImage`, `planAsset`, `convertImage`, and `optimizeImage`.
+- Browser image conversion and clarity-preserving re-encoding for PNG, JPEG, WebP, AVIF, BMP, GIF, and TIFF workflows.
+- Optional browser AI background removal for people, products, animals, and complex scenes.
+- Phantom Asset Plan recipes for format, filter, tile, and memory recommendations.
 - Provider-neutral alpha-mask refinement with color-guided soft edges.
 - Raw RGBA source/sink abstraction for decoder-specific integrations.
 - Browser worker pool and transferable tile payloads.
@@ -74,7 +75,7 @@ const input: RawRgbaImage = {
 
 const preview = phantom.resizeImage(input, 512, 256);
 const enhanced = await phantom.applyFilter(preview);
-const cutout = phantom.removeImageBackground(enhanced);
+const plan = phantom.planAsset(enhanced);
 ```
 
 Named imports are also available:
@@ -159,9 +160,11 @@ try {
 | `cropImage`             | Crop an image with `{ x, y, width, height }`             |
 | `applyFilter`           | Apply one filter without configuring tile overlap        |
 | `applyFilters`          | Apply multiple filters in order                          |
-| `removeImageBackground` | Remove a plain or product background with safe defaults  |
 | `applyMask`             | Apply an external segmentation mask                      |
 | `replaceBackground`     | Flatten transparent pixels onto a solid background color |
+| `planAsset`             | Pick SDK defaults for filters, tiles, and encoding       |
+| `convertImage`          | Convert browser image inputs between popular formats     |
+| `optimizeImage`         | Re-encode browser images with clarity-preserving defaults |
 
 Prefer one import for everyday usage:
 
@@ -170,18 +173,6 @@ import phantom from "@paramission-lab/phantom";
 
 const image = phantom.makeImage(800, 600, { r: 255, g: 255, b: 255 });
 const output = await phantom.applyFilter(image, "invert");
-```
-
-Remove a mostly-uniform background and keep alpha for PNG export:
-
-```ts
-import { removeBackground } from "@paramission-lab/phantom";
-
-const cutout = removeBackground(input, {
-  threshold: 38,
-  softness: 44,
-  featherRadius: 2,
-});
 ```
 
 Apply a mask from any segmentation provider:
@@ -194,6 +185,26 @@ const cutout = applyAlphaMask(input, {
   height: maskHeight,
   data: maskBytes,
 });
+```
+
+Create an SDK job recipe before processing or exporting:
+
+```ts
+import phantom, { createPhantomAssetPlan } from "@paramission-lab/phantom";
+
+const plan = createPhantomAssetPlan(input, { goal: "delivery" });
+const processed = await phantom.applyFilters(input, plan.filters, {
+  tileSize: plan.tileSize,
+});
+```
+
+Convert or optimize browser-readable image files:
+
+```ts
+import { convertImageFile, optimizeImageFile } from "@paramission-lab/phantom";
+
+const webp = await optimizeImageFile(file, { format: "webp", quality: 0.92 });
+const png = await convertImageFile(file, { format: "png" });
 ```
 
 Track progress and collect runtime stats:
@@ -328,7 +339,7 @@ Compressed image streaming is intentionally kept outside the core. Integrate a d
 | `npm run lint`       | Run ESLint.                                                       |
 | `npm run build`      | Emit TypeScript build artifacts to `dist/`.                       |
 | `npm run prepare`    | Build TypeScript for direct Git dependency installation.          |
-| `npm run build:wasm` | Compile `zig/src/kernel.zig` to `dist/phantom_kernel.wasm`.       |
+| `npm run build:wasm` | Compile `zig/src/phantom-kernel.zig` to `dist/phantom_kernel.wasm`. |
 | `npm run ci`         | Run typecheck, lint, tests, TypeScript build, and Zig WASM build. |
 | `npm run release:*`  | Bump package version with npm, for example `release:patch`.       |
 
@@ -364,12 +375,12 @@ requires an npm organization or user scope named `paramission-lab`; creating onl
 
 The original `v0.1.0` tag contains the obsolete `@paramissionlab/phantom`
 package name and must not be moved or reused. Publish the corrected package from
-the current `1.0.0` metadata with a new tag:
+the current `1.0.1` metadata with a new tag:
 
 ```bash
 git add package.json package-lock.json CHANGELOG.md README.md SECURITY.md .github/workflows/publish-npm.yml Plan.md
 git commit -m "Fix npm release scope validation"
-git tag v1.0.0
+git tag v1.0.1
 git push origin main --follow-tags
 ```
 
@@ -391,7 +402,7 @@ Publishing a GitHub Release also starts the same workflow, protected by the
 `npm` environment.
 
 Manual publish from GitHub Actions is also available through the `Publish npm`
-workflow dispatch input. Use a release tag such as `v1.0.0`.
+workflow dispatch input. Use a release tag such as `v1.0.1`.
 
 If `npm publish` fails with `E404 Scope not found`, create the npm organization
 `paramission-lab` on npmjs.com or change `package.json` to a scope that already
@@ -444,7 +455,7 @@ const capabilities = detectCapabilities();
 ## Operational Limits
 
 - A 32K/64K target is processed as bounded tiles; it is not a promise that every browser or decoder can allocate a complete frame.
-- AI quality depends on the selected model and input. Keep the deterministic fuzzy path available for plain backdrops.
+- AI quality depends on the selected model, input, and browser backend. Core background removal is AI-mask based; the old fuzzy fallback is no longer included.
 - WebGPU availability and supported precision vary by browser and GPU driver. The SDK falls back when initialization fails.
 - `SharedArrayBuffer` requires cross-origin isolation headers.
 

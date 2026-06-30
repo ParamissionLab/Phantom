@@ -174,6 +174,10 @@ function getShader(filter: Exclude<PixelFilter, "identity">): string {
       return shaderBody("smoothEnhancePixel(index)");
     case "sharpen3x3":
       return shaderBody("sharpenPixel(index)");
+    case "boxBlur3x3":
+      return shaderBody("boxBlurPixel(index)");
+    case "unsharpMask":
+      return shaderBody("unsharpMaskPixel(index)");
     default:
       filter satisfies never;
       throw new PhantomError(`Unsupported WebGPU filter: ${String(filter)}`);
@@ -246,6 +250,13 @@ fn smoothChannel(center: u32, blur: u32) -> u32 {
   let detail = i32(center) - i32(blur);
   return clampByte(i32(center) + (detail * 3) / 8);
 }
+fn unsharpChannel(center: u32, blur: u32) -> u32 {
+  let detail = i32(center) - i32(blur);
+  return clampByte(i32(center) + (detail * 5) / 8);
+}
+fn boxBlurChannel(topLeft: u32, top: u32, topRight: u32, left: u32, center: u32, right: u32, bottomLeft: u32, bottom: u32, bottomRight: u32) -> u32 {
+  return (topLeft + top + topRight + left + center + right + bottomLeft + bottom + bottomRight + 4u) / 9u;
+}
 fn smoothEnhancePixel(index: u32) -> u32 {
   let x = index % metadata.width;
   let y = index / metadata.width;
@@ -269,6 +280,55 @@ fn smoothEnhancePixel(index: u32) -> u32 {
     smoothChannel(red(c), brg),
     smoothChannel(green(c), bgg),
     smoothChannel(blue(c), bbg),
+    alpha(c)
+  );
+}
+fn unsharpMaskPixel(index: u32) -> u32 {
+  let x = index % metadata.width;
+  let y = index / metadata.width;
+  let leftX = select(x - 1u, 0u, x == 0u);
+  let rightX = min(x + 1u, metadata.width - 1u);
+  let topY = select(y - 1u, 0u, y == 0u);
+  let bottomY = min(y + 1u, metadata.height - 1u);
+  let c = inputPixels[index];
+  let l = inputPixels[sampleIndex(leftX, y)];
+  let r = inputPixels[sampleIndex(rightX, y)];
+  let t = inputPixels[sampleIndex(x, topY)];
+  let b = inputPixels[sampleIndex(x, bottomY)];
+  let tl = inputPixels[sampleIndex(leftX, topY)];
+  let tr = inputPixels[sampleIndex(rightX, topY)];
+  let bl = inputPixels[sampleIndex(leftX, bottomY)];
+  let br = inputPixels[sampleIndex(rightX, bottomY)];
+  let brg = blurChannel(red(c), red(l), red(r), red(t), red(b), red(tl), red(tr), red(bl), red(br));
+  let bgg = blurChannel(green(c), green(l), green(r), green(t), green(b), green(tl), green(tr), green(bl), green(br));
+  let bbg = blurChannel(blue(c), blue(l), blue(r), blue(t), blue(b), blue(tl), blue(tr), blue(bl), blue(br));
+  return pack(
+    unsharpChannel(red(c), brg),
+    unsharpChannel(green(c), bgg),
+    unsharpChannel(blue(c), bbg),
+    alpha(c)
+  );
+}
+fn boxBlurPixel(index: u32) -> u32 {
+  let x = index % metadata.width;
+  let y = index / metadata.width;
+  let leftX = select(x - 1u, 0u, x == 0u);
+  let rightX = min(x + 1u, metadata.width - 1u);
+  let topY = select(y - 1u, 0u, y == 0u);
+  let bottomY = min(y + 1u, metadata.height - 1u);
+  let c = inputPixels[index];
+  let l = inputPixels[sampleIndex(leftX, y)];
+  let r = inputPixels[sampleIndex(rightX, y)];
+  let t = inputPixels[sampleIndex(x, topY)];
+  let b = inputPixels[sampleIndex(x, bottomY)];
+  let tl = inputPixels[sampleIndex(leftX, topY)];
+  let tr = inputPixels[sampleIndex(rightX, topY)];
+  let bl = inputPixels[sampleIndex(leftX, bottomY)];
+  let br = inputPixels[sampleIndex(rightX, bottomY)];
+  return pack(
+    boxBlurChannel(red(tl), red(t), red(tr), red(l), red(c), red(r), red(bl), red(b), red(br)),
+    boxBlurChannel(green(tl), green(t), green(tr), green(l), green(c), green(r), green(bl), green(b), green(br)),
+    boxBlurChannel(blue(tl), blue(t), blue(tr), blue(l), blue(c), blue(r), blue(bl), blue(b), blue(br)),
     alpha(c)
   );
 }

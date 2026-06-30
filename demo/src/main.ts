@@ -7,7 +7,6 @@ import {
   getPixelFilterOverlap,
   listPixelFilters,
   planTiles,
-  removeBackground,
   RGBA_CHANNELS,
   type PixelFilter,
   type AlphaMask,
@@ -23,7 +22,6 @@ import "./styles.css";
 
 type ResolutionKey = "16k" | "32k" | "64k";
 type OperationMode = "enhance" | "removeBackground";
-type BackgroundEngine = "ai" | "fuzzy";
 
 interface DemoState {
   resolution: ResolutionKey;
@@ -33,7 +31,6 @@ interface DemoState {
   backgroundSoftness: number;
   backgroundFeather: number;
   foregroundGuard: number;
-  backgroundEngine: BackgroundEngine;
   memoryMb: number;
   slider: number;
   runningToken: number;
@@ -61,7 +58,6 @@ const state: DemoState = {
   backgroundSoftness: 54,
   backgroundFeather: 2,
   foregroundGuard: 70,
-  backgroundEngine: "ai",
   memoryMb: 64,
   slider: 52,
   runningToken: 0,
@@ -83,7 +79,7 @@ const featureRows = [
   ["Workers", "Transferable tile payloads and SharedArrayBuffer helper"],
   [
     "Background removal",
-    "AI subject matte plus a fuzzy edge-connected fallback and transparent PNG export",
+    "Downloaded AI subject matte, color-guided soft edges, and transparent PNG export",
   ],
 ];
 
@@ -108,7 +104,7 @@ app.innerHTML = `
         <div>
           <p class="text-xs font-bold uppercase tracking-[0.18em] text-emerald-700">Phantom SDK demo</p>
           <h1 class="mt-1 text-3xl font-semibold tracking-normal text-zinc-950">Image Studio for 32K / 64K files</h1>
-          <p class="mt-1 max-w-2xl text-sm leading-6 text-zinc-600">Upload a real image, remove plain backgrounds, preview tile-safe enhancement, and inspect every SDK layer from filters to memory planning.</p>
+          <p class="mt-1 max-w-2xl text-sm leading-6 text-zinc-600">Upload a real image, remove AI subject backgrounds, preview tile-safe enhancement, and inspect every SDK layer from filters to memory planning.</p>
         </div>
         <div class="flex flex-wrap gap-2">
           <label class="inline-flex min-h-10 cursor-pointer items-center rounded-md border border-zinc-300 bg-white px-4 text-sm font-semibold hover:border-emerald-700" for="upload">Import image</label>
@@ -161,21 +157,17 @@ app.innerHTML = `
           <input id="memory" class="mt-3 w-full accent-emerald-700" min="16" max="256" step="16" type="range" value="64" />
 
           <span class="mt-4 block text-xs font-bold uppercase tracking-[0.16em] text-zinc-500">Mask engine</span>
-          <div class="mt-3 grid grid-cols-2 rounded-md border border-zinc-300 bg-zinc-100 p-1" role="group" aria-label="Background removal engine">
+          <div class="mt-3 grid rounded-md border border-zinc-300 bg-zinc-100 p-1" role="group" aria-label="Background removal engine">
             <button data-mask-mode="ai" class="mask-mode active min-h-10 rounded-sm px-3 text-left text-sm font-semibold">
               <span class="block">AI Subject</span>
-              <span class="block text-xs font-medium opacity-65">people & objects</span>
-            </button>
-            <button data-mask-mode="fuzzy" class="mask-mode min-h-10 rounded-sm px-3 text-left text-sm font-semibold">
-              <span class="block">Fast Fuzzy</span>
-              <span class="block text-xs font-medium opacity-65">plain backdrop</span>
+              <span class="block text-xs font-medium opacity-65">downloaded model</span>
             </button>
           </div>
 
-          <label for="threshold" class="mt-4 block text-xs font-bold uppercase tracking-[0.16em] text-zinc-500">Background strength <strong id="thresholdLabel" class="text-emerald-700">38</strong></label>
+          <label for="threshold" class="mt-4 block text-xs font-bold uppercase tracking-[0.16em] text-zinc-500">Mask cutoff <strong id="thresholdLabel" class="text-emerald-700">38</strong></label>
           <input id="threshold" class="mt-3 w-full accent-emerald-700" min="8" max="96" step="1" type="range" value="38" />
 
-          <label for="softness" class="mt-4 block text-xs font-bold uppercase tracking-[0.16em] text-zinc-500">Fuzzy softness <strong id="softnessLabel" class="text-emerald-700">54</strong></label>
+          <label for="softness" class="mt-4 block text-xs font-bold uppercase tracking-[0.16em] text-zinc-500">Edge softness <strong id="softnessLabel" class="text-emerald-700">54</strong></label>
           <input id="softness" class="mt-3 w-full accent-emerald-700" min="0" max="96" step="1" type="range" value="54" />
 
           <div class="mt-4 grid grid-cols-2 gap-3">
@@ -276,8 +268,7 @@ app.innerHTML = `
           <h2 class="text-lg font-semibold">Use the SDK</h2>
   <pre class="mt-3 overflow-auto rounded-md bg-black/40 p-3 text-xs leading-5 text-emerald-100"><code>import {
   processRawImage,
-  removeBackground,
-  estimateBackgroundPalette,
+  applyAlphaMask,
   describeProcessingPlan,
   listPixelFilters
 } from "@paramission-lab/phantom";
@@ -313,10 +304,7 @@ function bindControls(): void {
       state.operation = button.dataset.operation as OperationMode;
       updateOperationUi();
       renderPlan();
-      if (
-        state.operation === "removeBackground" &&
-        state.backgroundEngine === "ai"
-      ) {
+      if (state.operation === "removeBackground") {
         startAiPreload();
       }
       if (sourceImage !== undefined) {
@@ -329,12 +317,9 @@ function bindControls(): void {
     "[data-mask-mode]",
   )) {
     button.addEventListener("click", () => {
-      state.backgroundEngine = button.dataset.maskMode as BackgroundEngine;
       updateOperationUi();
       renderPlan();
-      if (state.backgroundEngine === "ai") {
-        startAiPreload();
-      }
+      startAiPreload();
       if (state.operation === "removeBackground" && sourceImage !== undefined) {
         void runCurrentOperation();
       }
@@ -504,7 +489,7 @@ function renderPlan(): void {
     `${stats.memoryReductionRatio.toFixed(1)}x`;
   requireElement("backendProfile").textContent =
     state.operation === "removeBackground"
-      ? `${state.backgroundEngine === "ai" ? "AI subject" : "fast fuzzy"} • ${stats.tileSize}px mask tiles • soft alpha`
+      ? `AI subject • ${stats.tileSize}px mask tiles • soft alpha`
       : `${stats.filter} • ${stats.tileSize}px tiles • ${stats.overlap}px overlap`;
 }
 
@@ -620,42 +605,7 @@ async function removeBackgroundPreview(
     return;
   }
 
-  if (state.backgroundEngine === "ai") {
-    await removeBackgroundWithAi(cropped, bounds, token, started);
-    return;
-  }
-
-  const result = removeBackground(
-    {
-      width: bounds.width,
-      height: bounds.height,
-      data: cropped,
-    },
-    {
-      threshold: state.backgroundThreshold,
-      softness: state.backgroundSoftness,
-      edgeSampleSize: Math.min(12, bounds.width, bounds.height),
-      colorClusters: 5,
-      edgeSensitivity: 46,
-      featherRadius: state.backgroundFeather,
-      foregroundBias: state.foregroundGuard / 100,
-      mode: "fuzzy",
-      preserveShadows: true,
-    },
-  );
-  const output = new ImageData(PREVIEW_WIDTH, PREVIEW_HEIGHT);
-  writeImageRect(output, bounds, result.data);
-  enhancedImage = output;
-  paintImageWithCheckerboard(output);
-  updateMaskProgress(
-    result.removedPixels,
-    bounds.width * bounds.height,
-    started,
-    cropped.byteLength + result.data.byteLength,
-  );
-  requireElement("maskEngine").textContent =
-    `${result.diagnostics.mode} • ${result.diagnostics.palette.length} colors`;
-  requireElement("modelState").textContent = "Local deterministic";
+  await removeBackgroundWithAi(cropped, bounds, token, started);
 }
 
 async function removeBackgroundWithAi(
@@ -826,10 +776,7 @@ async function loadImageFile(file: File): Promise<void> {
   semanticMask = undefined;
   semanticMaskPromise = undefined;
   requireElement("status").textContent = "Loading";
-  if (
-    state.operation === "removeBackground" &&
-    state.backgroundEngine === "ai"
-  ) {
+  if (state.operation === "removeBackground") {
     startAiPreload();
   }
   const bitmap = await createImageBitmap(file);
@@ -957,10 +904,7 @@ function updateOperationUi(): void {
   )) {
     const disabled = state.operation !== "removeBackground";
     option.disabled = disabled;
-    option.classList.toggle(
-      "active",
-      option.dataset.maskMode === state.backgroundEngine,
-    );
+    option.classList.toggle("active", option.dataset.maskMode === "ai");
     option.classList.toggle("cursor-not-allowed", disabled);
     option.classList.toggle("opacity-50", disabled);
   }

@@ -66,4 +66,41 @@ describe("applyFilterToTile", () => {
     );
     expect(Array.from(result.rgba)).toEqual([125, 125, 125, 255]);
   });
+
+  it("softens pixels with a 3x3 blur", () => {
+    const overlapDescriptor: TileDescriptor = {
+      index: 3,
+      input: { x: 0, y: 0, width: 3, height: 3 },
+      output: { x: 1, y: 1, width: 1, height: 1 },
+    };
+    const tile = Uint8Array.from([
+      0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 90, 90, 90,
+      255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255,
+    ]);
+
+    const result = applyFilterToTile(
+      { descriptor: overlapDescriptor, rgba: tile },
+      "boxBlur3x3",
+    );
+    expect(Array.from(result.rgba)).toEqual([10, 10, 10, 255]);
+  });
+
+  it("applies a stronger unsharp mask for delivery clarity", () => {
+    const overlapDescriptor: TileDescriptor = {
+      index: 4,
+      input: { x: 0, y: 0, width: 3, height: 3 },
+      output: { x: 1, y: 1, width: 1, height: 1 },
+    };
+    const tile = Uint8Array.from([
+      10, 10, 10, 255, 10, 10, 10, 255, 10, 10, 10, 255, 10, 10, 10, 255, 100,
+      100, 100, 255, 10, 10, 10, 255, 10, 10, 10, 255, 10, 10, 10, 255, 10,
+      10, 10, 255,
+    ]);
+
+    const result = applyFilterToTile(
+      { descriptor: overlapDescriptor, rgba: tile },
+      "unsharpMask",
+    );
+    expect(Array.from(result.rgba)).toEqual([142, 142, 142, 255]);
+  });
 });

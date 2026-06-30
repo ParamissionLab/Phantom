@@ -19,6 +19,8 @@ const LUMA_B = toFixed(0.114);
 const SHARPEN_3X3_FIXED = normalizeKernel3x3([0, -1, 0, -1, 5, -1, 0, -1, 0]);
 const SMOOTH_DETAIL_NUMERATOR = 3;
 const SMOOTH_DETAIL_DENOMINATOR = 8;
+const UNSHARP_DETAIL_NUMERATOR = 5;
+const UNSHARP_DETAIL_DENOMINATOR = 8;
 
 /**
  * Applies a pixel filter to one overlap-expanded RGBA tile and returns only
@@ -53,7 +55,14 @@ export function applyFilterToTile(
       grayscaleCore(rgba, descriptor.input, descriptor.output, output);
       break;
     case "smoothEnhance":
-      smoothEnhanceCore(rgba, descriptor.input, descriptor.output, output);
+      smoothEnhanceCore(
+        rgba,
+        descriptor.input,
+        descriptor.output,
+        output,
+        SMOOTH_DETAIL_NUMERATOR,
+        SMOOTH_DETAIL_DENOMINATOR,
+      );
       break;
     case "sharpen3x3":
       convolutionCore(
@@ -62,6 +71,19 @@ export function applyFilterToTile(
         descriptor.output,
         output,
         SHARPEN_3X3_FIXED,
+      );
+      break;
+    case "boxBlur3x3":
+      boxBlurCore(rgba, descriptor.input, descriptor.output, output);
+      break;
+    case "unsharpMask":
+      smoothEnhanceCore(
+        rgba,
+        descriptor.input,
+        descriptor.output,
+        output,
+        UNSHARP_DETAIL_NUMERATOR,
+        UNSHARP_DETAIL_DENOMINATOR,
       );
       break;
     default:
@@ -77,6 +99,8 @@ function smoothEnhanceCore(
   inputRect: Rect,
   outputRect: Rect,
   output: Uint8Array,
+  detailNumerator: number,
+  detailDenominator: number,
 ): void {
   let outputIndex = 0;
 
@@ -97,14 +121,48 @@ function smoothEnhanceCore(
         );
         const detail = center - blur;
         output[outputIndex + channel] = clampU8(
-          center +
-            Math.trunc(
-              (detail * SMOOTH_DETAIL_NUMERATOR) / SMOOTH_DETAIL_DENOMINATOR,
-            ),
+          center + Math.trunc((detail * detailNumerator) / detailDenominator),
         );
       }
 
       output[outputIndex + 3] = input[centerIndex + 3] ?? 255;
+      outputIndex += RGBA_CHANNELS;
+    }
+  }
+}
+
+function boxBlurCore(
+  input: Uint8Array,
+  inputRect: Rect,
+  outputRect: Rect,
+  output: Uint8Array,
+): void {
+  let outputIndex = 0;
+
+  for (let y = 0; y < outputRect.height; y += 1) {
+    for (let x = 0; x < outputRect.width; x += 1) {
+      const sourceX = outputRect.x + x - inputRect.x;
+      const sourceY = outputRect.y + y - inputRect.y;
+
+      for (let channel = 0; channel < 3; channel += 1) {
+        let total = 0;
+        for (let dy = -1; dy <= 1; dy += 1) {
+          for (let dx = -1; dx <= 1; dx += 1) {
+            total += sampleChannel(
+              input,
+              inputRect,
+              sourceX + dx,
+              sourceY + dy,
+              channel,
+            );
+          }
+        }
+        output[outputIndex + channel] = Math.round(total / 9);
+      }
+
+      const alphaIndex =
+        (sourceY * inputRect.width + sourceX) * RGBA_CHANNELS + 3;
+      output[outputIndex + 3] = input[alphaIndex] ?? 255;
       outputIndex += RGBA_CHANNELS;
     }
   }

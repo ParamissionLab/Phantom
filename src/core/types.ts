@@ -1,7 +1,13 @@
 export const RGBA_CHANNELS = 4;
 
 export type PixelFilter =
-  "identity" | "invert" | "grayscale" | "smoothEnhance" | "sharpen3x3";
+  | "identity"
+  | "invert"
+  | "grayscale"
+  | "smoothEnhance"
+  | "sharpen3x3"
+  | "boxBlur3x3"
+  | "unsharpMask";
 
 export interface ImageDimensions {
   readonly width: number;
