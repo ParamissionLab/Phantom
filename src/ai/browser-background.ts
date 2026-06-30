@@ -39,6 +39,13 @@ export interface AiPreloadResult {
 
 export interface AiBackgroundRemovalOptions
   extends AiBackgroundRemoverOptions, AlphaMaskRefinementOptions {
+  /**
+   * Demo-style foreground cutoff. When `threshold` is not set, this maps to the
+   * alpha-mask threshold used internally by the SDK.
+   */
+  readonly maskCutoff?: number;
+  /** Demo-style subject guard percentage used to tune edge sensitivity. */
+  readonly subjectGuard?: number;
   readonly onProgress?: (progress: AiProgress) => void;
 }
 
@@ -57,6 +64,17 @@ interface LoadedEngine {
   readonly pipeline: SemanticPipeline;
   readonly backend: AiBackend;
 }
+
+export const PHANTOM_AI_BACKGROUND_DEFAULTS = {
+  maskCutoff: 38,
+  softness: 54,
+  featherRadius: 2,
+  subjectGuard: 70,
+} as const;
+
+const MASK_CUTOFF_THRESHOLD_OFFSET = 32;
+const EDGE_SENSITIVITY_BASE = 34;
+const EDGE_SENSITIVITY_GUARD_SCALE = 0.35;
 
 /** Browser AI engine that lazily loads, caches, and reuses one segmentation model. */
 export class BrowserBackgroundRemover {
@@ -194,6 +212,44 @@ export function createAiBackgroundRemover(
 export const createPhantomAi = createAiBackgroundRemover;
 
 /**
+ * Resolves AI background-removal controls to the alpha-mask refinement options
+ * used by `removeBackgroundAi()`. Defaults match the demo's tuned controls.
+ */
+export function resolveAiMaskRefinementOptions(
+  options: AiBackgroundRemovalOptions = {},
+): AlphaMaskRefinementOptions {
+  const maskCutoff =
+    options.maskCutoff ?? PHANTOM_AI_BACKGROUND_DEFAULTS.maskCutoff;
+  const subjectGuard =
+    options.subjectGuard ?? PHANTOM_AI_BACKGROUND_DEFAULTS.subjectGuard;
+
+  if (
+    !Number.isFinite(maskCutoff) ||
+    maskCutoff < 0 ||
+    maskCutoff > 255 ||
+    !Number.isFinite(subjectGuard) ||
+    subjectGuard < 0 ||
+    subjectGuard > 100
+  ) {
+    throw new PhantomError(
+      "maskCutoff must be from 0 to 255 and subjectGuard must be from 0 to 100.",
+    );
+  }
+
+  return {
+    threshold:
+      options.threshold ??
+      Math.max(0, maskCutoff - MASK_CUTOFF_THRESHOLD_OFFSET),
+    softness: options.softness ?? PHANTOM_AI_BACKGROUND_DEFAULTS.softness,
+    featherRadius:
+      options.featherRadius ?? PHANTOM_AI_BACKGROUND_DEFAULTS.featherRadius,
+    edgeSensitivity:
+      options.edgeSensitivity ??
+      EDGE_SENSITIVITY_BASE + subjectGuard * EDGE_SENSITIVITY_GUARD_SCALE,
+  };
+}
+
+/**
  * One-call AI background removal for browser apps.
  */
 export async function removeBackgroundAi(
@@ -208,7 +264,11 @@ export async function removeBackgroundAi(
       prepared.modelInput,
       options.onProgress,
     );
-    const cutout = applyAlphaMask(prepared.rgba, mask, options);
+    const cutout = applyAlphaMask(
+      prepared.rgba,
+      mask,
+      resolveAiMaskRefinementOptions(options),
+    );
 
     return {
       ...cutout,

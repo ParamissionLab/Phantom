@@ -106,9 +106,11 @@ export {
 } from "./wasm/index.js";
 export {
   BrowserBackgroundRemover,
+  PHANTOM_AI_BACKGROUND_DEFAULTS,
   createAiBackgroundRemover,
   createPhantomAi,
   removeBackgroundAi,
+  resolveAiMaskRefinementOptions,
   type AiBackend,
   type AiBackendPreference,
   type AiBackgroundRemovalOptions,

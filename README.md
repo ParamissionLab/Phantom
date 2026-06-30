@@ -273,8 +273,9 @@ canvasContext.putImageData(
 ```
 
 `removeBackgroundAi()` accepts a browser `Blob`, URL, `HTMLCanvasElement`, or
-`OffscreenCanvas`. The result includes `data`, `width`, `height`, `backend`, and
-`model`.
+`OffscreenCanvas`. Its default mask refinement is the same tuned preset used by
+the demo: mask cutoff `38`, edge softness `54`, feather `2px`, and subject guard
+`70%`. The result includes `data`, `width`, `height`, `backend`, and `model`.
 
 For many images, reuse one loaded model:
 
@@ -301,6 +302,10 @@ Configuration:
 | `backend`     | `auto`                      | `auto`, `webgpu`, or CPU/WASM fallback      |
 | `webgpuDtype` | `fp16`                      | WebGPU precision: `fp16` or `fp32`          |
 | `wasmDtype`   | `q8`                        | Fallback precision: `q4`, `q8`, or `fp32`   |
+| `maskCutoff`  | `38`                        | Demo-style AI mask cutoff                   |
+| `softness`    | `54`                        | Edge transition width after AI inference    |
+| `featherRadius` | `2`                      | Color-guided edge refinement radius         |
+| `subjectGuard` | `70`                      | Demo-style subject guard percentage         |
 | `onProgress`  | none                        | Progress callback for model loading         |
 
 The default `onnx-community/ormbg-ONNX` model is Apache-2.0 licensed. Model

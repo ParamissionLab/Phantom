@@ -2,9 +2,11 @@ import { createPhantomAi, removeBackgroundAi } from "./browser-background.js";
 
 export {
   BrowserBackgroundRemover,
+  PHANTOM_AI_BACKGROUND_DEFAULTS,
   createAiBackgroundRemover,
   createPhantomAi,
   removeBackgroundAi,
+  resolveAiMaskRefinementOptions,
   type AiBackend,
   type AiBackendPreference,
   type AiBackgroundRemovalOptions,

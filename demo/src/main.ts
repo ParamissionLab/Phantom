@@ -15,6 +15,7 @@ import {
 } from "../../src/index.js";
 import {
   createPhantomAi,
+  resolveAiMaskRefinementOptions,
   type AiBackend,
   type AiProgress,
 } from "../../src/ai/index.js";
@@ -622,12 +623,12 @@ async function removeBackgroundWithAi(
   const result = applyAlphaMask(
     { width: bounds.width, height: bounds.height, data: cropped },
     mask,
-    {
-      threshold: Math.max(0, state.backgroundThreshold - 32),
+    resolveAiMaskRefinementOptions({
+      maskCutoff: state.backgroundThreshold,
       softness: state.backgroundSoftness,
       featherRadius: state.backgroundFeather,
-      edgeSensitivity: 34 + state.foregroundGuard * 0.35,
-    },
+      subjectGuard: state.foregroundGuard,
+    }),
   );
   const output = new ImageData(PREVIEW_WIDTH, PREVIEW_HEIGHT);
   writeImageRect(output, bounds, result.data);

@@ -37,8 +37,10 @@ vi.mock("@huggingface/transformers", () => ({
 
 import {
   default as ai,
+  PHANTOM_AI_BACKGROUND_DEFAULTS,
   createAiBackgroundRemover,
   removeBackgroundAi,
+  resolveAiMaskRefinementOptions,
 } from "../src/ai/index.js";
 
 describe("AI background remover", () => {
@@ -76,6 +78,43 @@ describe("AI background remover", () => {
     expect(mocks.segmenter).toHaveBeenCalledTimes(1);
     expect(Array.from(result.mask.data)).toEqual([64, 224]);
     await remover.dispose();
+  });
+
+  it("uses the same tuned mask defaults as the demo", () => {
+    expect(PHANTOM_AI_BACKGROUND_DEFAULTS).toEqual({
+      maskCutoff: 38,
+      softness: 54,
+      featherRadius: 2,
+      subjectGuard: 70,
+    });
+    expect(resolveAiMaskRefinementOptions()).toEqual({
+      threshold: 6,
+      softness: 54,
+      featherRadius: 2,
+      edgeSensitivity: 58.5,
+    });
+    expect(
+      resolveAiMaskRefinementOptions({
+        maskCutoff: 38,
+        subjectGuard: 70,
+      }),
+    ).toEqual(resolveAiMaskRefinementOptions());
+  });
+
+  it("lets callers override raw alpha refinement values", () => {
+    expect(
+      resolveAiMaskRefinementOptions({
+        threshold: 128,
+        softness: 12,
+        featherRadius: 0,
+        edgeSensitivity: 20,
+      }),
+    ).toEqual({
+      threshold: 128,
+      softness: 12,
+      featherRadius: 0,
+      edgeSensitivity: 20,
+    });
   });
 
   it("removes a background from a canvas in one call", async () => {
