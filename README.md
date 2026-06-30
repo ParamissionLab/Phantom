@@ -10,8 +10,6 @@ Node.js workloads. It keeps memory bounded with overlap-aware tiles, provides a
 deterministic CPU baseline, and exposes optional browser workers, WebGPU, Zig
 WebAssembly, and AI background-removal paths.
 
-Current stable release: `1.0.1`.
-
 ## Table of Contents
 
 - [When to use Phantom](#when-to-use-phantom)
@@ -67,15 +65,16 @@ package is scoped under Paramission Lab while the SDK brand remains Phantom.
 Install directly from GitHub when you need a specific tag or commit:
 
 ```bash
-npm install git+https://github.com/ParamissionLab/phantom.git#v1.0.1
+npm install git+https://github.com/ParamissionLab/phantom.git#<release-tag>
 ```
 
 For a private organization repository configured with SSH access:
 
 ```bash
-npm install git+ssh://git@github.com/ParamissionLab/phantom.git#v1.0.1
+npm install git+ssh://git@github.com/ParamissionLab/phantom.git#<release-tag>
 ```
 
+Replace `<release-tag>` with a published Git tag from the repository releases.
 Pin a release tag or full commit SHA instead of `main` so installs remain
 reproducible. Git installs run the package `prepare` script and compile the
 TypeScript build. The Zig WASM binary is not built automatically for Git
@@ -816,8 +815,8 @@ npm version patch
 git push origin main --follow-tags
 ```
 
-Pushing a tag such as `v1.0.2` starts the publish workflow. The workflow checks
-out the tag, verifies the package name, verifies the tag equals
+Pushing a tag that matches `v<package.version>` starts the publish workflow. The
+workflow checks out the tag, verifies the package name, verifies the tag equals
 `v<package.version>`, runs full validation, builds the demo, performs
 `npm pack --dry-run`, and publishes with npm provenance.
 
