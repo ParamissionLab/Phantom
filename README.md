@@ -5,23 +5,66 @@
 
 Maintained by [Paramission Lab](https://github.com/ParamissionLab).
 
-Tile-first RGBA image processing for large browser and Node.js workloads. The SDK combines a deterministic CPU baseline with worker, WebGPU, Zig WebAssembly, and optional AI background-removal paths.
+Phantom is a TypeScript-first RGBA image-processing SDK for large browser and
+Node.js workloads. It keeps memory bounded with overlap-aware tiles, provides a
+deterministic CPU baseline, and exposes optional browser workers, WebGPU, Zig
+WebAssembly, and AI background-removal paths.
 
-> **Release status:** `1.0.1` is the current stable public release. Follow semantic versioning when selecting an upgrade range.
+Current stable release: `1.0.1`.
+
+## Table of Contents
+
+- [When to use Phantom](#when-to-use-phantom)
+- [Installation](#installation)
+- [Runtime requirements](#runtime-requirements)
+- [Quick start](#quick-start)
+- [Core concepts](#core-concepts)
+- [Package entry points](#package-entry-points)
+- [Default API](#default-api)
+- [Raw RGBA utilities](#raw-rgba-utilities)
+- [Filters and tile processing](#filters-and-tile-processing)
+- [Masks and background replacement](#masks-and-background-replacement)
+- [Image conversion and optimization](#image-conversion-and-optimization)
+- [AI background removal](#ai-background-removal)
+- [Asset planning](#asset-planning)
+- [Workers](#workers)
+- [GPU and browser capabilities](#gpu-and-browser-capabilities)
+- [Zig WASM backend](#zig-wasm-backend)
+- [Error handling](#error-handling)
+- [Development](#development)
+- [Release process](#release-process)
+- [Operational limits](#operational-limits)
+
+## When to Use Phantom
+
+Use Phantom when you need:
+
+- A strict TypeScript SDK for raw RGBA image workflows.
+- Tile-first processing for large images where full-frame operations are too
+  expensive.
+- Safe convolution filters that preserve tile edges with explicit overlap.
+- A simple public facade for common editing tasks.
+- Lower-level `TileSource` and `TileSink` contracts for custom decoders,
+  encoders, storage, or streaming integrations.
+- Optional browser acceleration through workers, WebGPU, or Zig WASM.
+- Optional AI background removal that stays outside the core import path.
+
+Start with `phantom.edit(image)` for product features. Drop down to
+`processRawImage()`, `processTileSource()`, workers, GPU, or WASM only when you
+need more control over memory, execution, or integration boundaries.
 
 ## Installation
 
-From the npm registry:
+Install from npm:
 
 ```bash
 npm install @paramission-lab/phantom
 ```
 
-The unscoped `phantom` package name is already used on npm, so the public npm
-package is scoped under Paramission Lab while the SDK brand and API remain
-Phantom.
+The unscoped `phantom` package name is already used on npm, so the public
+package is scoped under Paramission Lab while the SDK brand remains Phantom.
 
-Directly from a public GitHub repository:
+Install directly from GitHub when you need a specific tag or commit:
 
 ```bash
 npm install git+https://github.com/ParamissionLab/phantom.git#v1.0.1
@@ -33,50 +76,31 @@ For a private organization repository configured with SSH access:
 npm install git+ssh://git@github.com/ParamissionLab/phantom.git#v1.0.1
 ```
 
-Use a release tag or full commit SHA instead of `main` so installs remain reproducible. npm installs development dependencies and runs the package `prepare` script to compile TypeScript when installing from Git. The optional Zig WASM binary is not compiled during Git installation; build it explicitly with Zig when that backend is required.
+Pin a release tag or full commit SHA instead of `main` so installs remain
+reproducible. Git installs run the package `prepare` script and compile the
+TypeScript build. The Zig WASM binary is not built automatically for Git
+installs; build it explicitly when you need that backend.
 
-The AI runtime is an optional dependency and is initialized only when `@paramission-lab/phantom/ai` is used. Model weights are not included in the npm package.
+## Runtime Requirements
 
-## When to Use Phantom
+| Area                  | Requirement                                                                     |
+| --------------------- | ------------------------------------------------------------------------------- |
+| Package format        | ESM                                                                             |
+| Node.js               | `>=22` for the supported development and CI environment                         |
+| TypeScript target     | ES2022                                                                          |
+| Core image processing | Works without DOM APIs                                                          |
+| Browser encoding      | Requires `Canvas`, `OffscreenCanvas`, or document canvas APIs                   |
+| Browser workers       | Requires module workers                                                         |
+| Shared tile memory    | Requires `SharedArrayBuffer`; cross-origin isolation is required in browsers    |
+| WebGPU                | Requires a browser/runtime with `navigator.gpu`                                 |
+| AI background removal | Requires browser image APIs and `@huggingface/transformers` optional dependency |
+| Zig WASM build        | Requires Zig `0.15.2`                                                           |
 
-Use Phantom when you need a TypeScript-first image SDK that keeps memory bounded
-with tiles and can move from a simple CPU path to browser workers, WebGPU, Zig
-WASM, and optional AI background removal without changing the public API.
-
-The practical rule: start with `phantom.edit(image)` for product features. Drop
-down to `processRawImage()`, `TileSource`, workers, GPU, or WASM only when you
-need tighter control.
-
-## Features
-
-- Fixed-capacity stream ingestion through `FixedByteRingBuffer`.
-- Overlap-aware tiling for convolution filters without tile-edge artifacts.
-- Fixed-point RGBA kernels: identity, invert, grayscale, smooth enhance, sharpen 3x3, blur 3x3, and unsharp mask.
-- Discoverable filter profiles with overlap and backend metadata.
-- Progress callbacks and runtime stats for tile-processing health checks.
-- Multi-step raw-image filter pipelines for reusable processing recipes.
-- Raw RGBA allocation, cloning, cropping, and resizing utilities.
-- One-door editing pipeline through `phantom.edit(image)` for resizing,
-  cropping, filtering, masking, background flattening, and planning without
-  learning many separate functions.
-- Default helpers such as `applyFilter`, `resizeImage`, `planAsset`,
-  `convertImage`, and `optimizeImage`.
-- Browser image conversion and clarity-preserving re-encoding for PNG, JPEG, WebP, AVIF, BMP, GIF, and TIFF workflows.
-- Optional browser AI background removal for people, products, animals, and complex scenes.
-- Phantom Asset Plan recipes for format, filter, tile, and memory recommendations.
-- Provider-neutral alpha-mask refinement with color-guided soft edges.
-- Raw RGBA source/sink abstraction for decoder-specific integrations.
-- Browser worker pool and transferable tile payloads.
-- SharedArrayBuffer tile memory helper for isolated worker runtimes.
-- WebGPU compute backend plus WebGPU/WebGL texture upload adapters.
-- Zig `wasm32-freestanding` kernel source and TypeScript WASM adapter.
-- Branded `PhantomError` for SDK validation and backend failures.
-- TypeScript strict mode, Vitest tests, ESLint, Prettier, and CI.
+The core import does not initialize WebGPU, workers, WASM, or AI inference.
 
 ## Quick Start
 
-For simple use cases, import the default `phantom` object and use one editing
-pipeline:
+Use the default facade for everyday editing:
 
 ```ts
 import phantom, { type RawRgbaImage } from "@paramission-lab/phantom";
@@ -93,32 +117,29 @@ const output = await phantom
   .filter("smoothEnhance")
   .run();
 
-const plan = await phantom.process(output).plan();
+const plan = await phantom.process(output).plan({ goal: "delivery" });
+console.log(plan.encode.format, plan.tileSize);
 ```
 
-The pipeline methods are chainable:
-
-| Method         | What it does                                         |
-| -------------- | ---------------------------------------------------- |
-| `crop(rect)`   | Crops with `{ x, y, width, height }`                 |
-| `resize(w,h)`  | Resizes with safe defaults                           |
-| `filter()`     | Applies one filter; defaults to `smoothEnhance`      |
-| `filters()`    | Applies several filters in order                     |
-| `mask()`       | Applies an alpha mask from any segmentation provider |
-| `background()` | Flattens transparent pixels onto a solid color       |
-| `plan()`       | Returns a Phantom asset plan for the current image   |
-| `run()`        | Resolves the edited raw RGBA image                   |
-
-Named imports are still available when you prefer direct functions:
+Use named imports when direct functions are clearer:
 
 ```ts
-import { applyFilter, resizeImage } from "@paramission-lab/phantom";
+import {
+  applyFilter,
+  createRawRgbaImage,
+  resizeImage,
+} from "@paramission-lab/phantom";
 
-const preview = resizeImage(input, 512, 256);
-const enhanced = await applyFilter(preview);
+const image = createRawRgbaImage(
+  { width: 800, height: 600 },
+  { r: 255, g: 255, b: 255 },
+);
+
+const preview = resizeImage(image, 320, 240);
+const enhanced = await applyFilter(preview, "unsharpMask");
 ```
 
-Use it with a browser canvas:
+Use Phantom with a browser canvas:
 
 ```ts
 import phantom from "@paramission-lab/phantom";
@@ -144,133 +165,450 @@ ctx.putImageData(
 );
 ```
 
-Use the lower-level API when you want full control:
+## Core Concepts
+
+### RawRgbaImage
+
+Most core APIs use this shape:
 
 ```ts
-import {
-  PhantomError,
-  processRawImage,
-  type RawRgbaImage,
-} from "@paramission-lab/phantom";
-
-const input: RawRgbaImage = {
-  width: 2,
-  height: 1,
-  data: Uint8Array.from([10, 20, 30, 255, 200, 210, 220, 255]),
-};
-
-try {
-  const output = await processRawImage(input, {
-    tileSize: 512,
-    overlap: 1,
-    filter: "sharpen3x3",
-  });
-} catch (error) {
-  if (error instanceof PhantomError) {
-    // Handle SDK validation or backend errors.
-  }
+interface RawRgbaImage {
+  readonly width: number;
+  readonly height: number;
+  readonly data: Uint8Array;
 }
 ```
 
+`data` must contain exactly `width * height * 4` bytes in RGBA order. Phantom
+validates dimensions and buffer lengths and throws `PhantomError` for SDK
+validation failures.
+
+### Tiles and Overlap
+
+Phantom processes large images as rectangular tiles. Convolution filters need
+neighboring pixels, so each tile can read a larger input rectangle and write only
+its non-overlapped output rectangle. This is how Phantom avoids tile-edge
+artifacts.
+
+High-level helpers such as `applyFilter()` and `applyFilters()` choose safe
+overlap values automatically. Lower-level processing APIs expose `tileSize` and
+`overlap` when you need exact control.
+
+### CPU Baseline
+
+The TypeScript CPU kernels are the correctness baseline. Worker, WebGPU, and
+WASM paths should match the CPU behavior for the same filter and tile region.
+
 ## Package Entry Points
 
-| Import                                         | Purpose                                                        |
-| ---------------------------------------------- | -------------------------------------------------------------- |
-| `@paramission-lab/phantom`                     | Core tiling, filters, masks, pipeline, planning, and utilities |
-| `@paramission-lab/phantom/ai`                  | Lazy AI subject-mask generation                                |
-| `@paramission-lab/phantom/gpu`                 | WebGPU compute and WebGPU/WebGL renderers                      |
-| `@paramission-lab/phantom/wasm`                | Zig WebAssembly loader and accelerated kernel adapter          |
-| `@paramission-lab/phantom/workers`             | Worker pool and shared tile-buffer helpers                     |
-| `@paramission-lab/phantom/worker`              | Short browser worker module path used by `TileWorkerPool`      |
-| `@paramission-lab/phantom/workers/tile-worker` | Long-form alias for the same browser worker module             |
+| Import                                         | Purpose                                                                                                    |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `@paramission-lab/phantom`                     | Core facade, raw RGBA utilities, filters, masks, planning, pipeline APIs, and re-exported optional helpers |
+| `@paramission-lab/phantom/ai`                  | Browser AI background-removal facade                                                                       |
+| `@paramission-lab/phantom/gpu`                 | WebGPU compute, WebGPU renderer, WebGL renderer, and capability detection                                  |
+| `@paramission-lab/phantom/wasm`                | Zig WebAssembly loader and kernel adapter types                                                            |
+| `@paramission-lab/phantom/workers`             | `TileWorkerPool` and `SharedTileBuffer`                                                                    |
+| `@paramission-lab/phantom/worker`              | Short browser worker module path for `TileWorkerPool`                                                      |
+| `@paramission-lab/phantom/workers/tile-worker` | Long-form alias for the same worker module                                                                 |
+
+Prefer subpath imports for browser-only modules when you want bundlers to keep
+optional code separated.
 
 ## Default API
 
-| Function            | Use when you want to                                      |
-| ------------------- | --------------------------------------------------------- |
-| `makeImage`         | Create a blank or solid-color raw RGBA image              |
-| `edit`              | Chain common image operations from one object             |
-| `process`           | Alias for `edit` when building a processing pipeline      |
-| `resizeImage`       | Resize with simple `width, height` arguments              |
-| `cropImage`         | Crop an image with `{ x, y, width, height }`              |
-| `applyFilter`       | Apply one filter without configuring tile overlap         |
-| `applyFilters`      | Apply multiple filters in order                           |
-| `applyMask`         | Apply an external segmentation mask                       |
-| `replaceBackground` | Flatten transparent pixels onto a solid background color  |
-| `planAsset`         | Pick SDK defaults for filters, tiles, and encoding        |
-| `convertImage`      | Convert browser image inputs between popular formats      |
-| `optimizeImage`     | Re-encode browser images with clarity-preserving defaults |
-
-Prefer one import for everyday usage:
+The default export is the `phantom` facade:
 
 ```ts
 import phantom from "@paramission-lab/phantom";
-
-const image = phantom.makeImage(800, 600, { r: 255, g: 255, b: 255 });
-const output = await phantom.edit(image).filter("invert").run();
 ```
 
-Apply a mask from any segmentation provider:
+| Function                                      | Description                                                   |
+| --------------------------------------------- | ------------------------------------------------------------- |
+| `makeImage(width, height, color?)`            | Allocate a raw RGBA image with an optional fill color         |
+| `edit(image)`                                 | Start a chainable edit pipeline                               |
+| `process(image)`                              | Alias for `edit(image)`                                       |
+| `cropImage(image, rect)`                      | Crop into a new raw RGBA image                                |
+| `resizeImage(image, width, height, options?)` | Resize with `bilinear` by default or `nearest` when requested |
+| `applyFilter(image, filter?, options?)`       | Apply one filter with safe overlap defaults                   |
+| `applyFilters(image, filters, options?)`      | Apply multiple filters in order                               |
+| `applyMask(image, mask, options?)`            | Apply a provider-generated alpha mask                         |
+| `replaceBackground(image, color)`             | Flatten transparent pixels onto a solid RGB color             |
+| `planAsset(image, options?)`                  | Create a processing and encoding recipe                       |
+| `convertImage(input, options?)`               | Convert browser image inputs through canvas encoding          |
+| `optimizeImage(input, options?)`              | Re-encode browser images with conservative defaults           |
+
+### Edit Pipeline
+
+`phantom.edit(image)` accepts a `RawRgbaImage` or `Promise<RawRgbaImage>` and
+returns a chainable pipeline.
+
+| Method                            | Description                                        |
+| --------------------------------- | -------------------------------------------------- |
+| `crop(rect)`                      | Crop with `{ x, y, width, height }`                |
+| `resize(width, height, options?)` | Resize with `bilinear` or `nearest`                |
+| `filter(filter?, options?)`       | Apply one filter, defaulting to `smoothEnhance`    |
+| `filters(filters, options?)`      | Apply multiple filters in order                    |
+| `mask(mask, options?)`            | Apply an alpha mask with refinement                |
+| `background(color)`               | Replace transparency with a solid color            |
+| `plan(options?)`                  | Resolve a `PhantomAssetPlan` for the current image |
+| `run()`                           | Resolve the edited `RawRgbaImage`                  |
+
+Example:
 
 ```ts
-import { applyAlphaMask } from "@paramission-lab/phantom";
+const output = await phantom
+  .edit(input)
+  .crop({ x: 100, y: 80, width: 1200, height: 900 })
+  .resize(600, 450, { method: "bilinear" })
+  .filters(["smoothEnhance", "unsharpMask"], {
+    tileSize: 512,
+    onProgress: ({ percent }) => console.log(percent.toFixed(0)),
+  })
+  .background({ r: 255, g: 255, b: 255 })
+  .run();
+```
 
-const cutout = applyAlphaMask(input, {
-  width: maskWidth,
-  height: maskHeight,
-  data: maskBytes,
+## Raw RGBA Utilities
+
+```ts
+import {
+  cloneRawImage,
+  createRawRgbaImage,
+  cropRawImage,
+  resizeRawImage,
+} from "@paramission-lab/phantom";
+```
+
+| Function                                      | Description                                       |
+| --------------------------------------------- | ------------------------------------------------- |
+| `createRawRgbaImage(dimensions, color?)`      | Allocate a transparent or solid-color RGBA buffer |
+| `cloneRawImage(image)`                        | Return a defensive copy                           |
+| `cropRawImage(image, rect)`                   | Copy a rectangular region                         |
+| `resizeRawImage(image, dimensions, options?)` | Resize with `bilinear` or `nearest`               |
+
+`resizeImage(image, width, height, options?)` is the compact facade signature for
+`resizeRawImage()`.
+
+## Filters and Tile Processing
+
+### Supported Filters
+
+```ts
+import {
+  getPixelFilterOverlap,
+  getPixelFilterProfile,
+  listPixelFilters,
+} from "@paramission-lab/phantom";
+```
+
+| Filter          | Label           | Overlap | Notes                            |
+| --------------- | --------------- | ------- | -------------------------------- |
+| `identity`      | Identity        | `0`     | Copy pixels                      |
+| `invert`        | Invert          | `0`     | Invert RGB, preserve alpha       |
+| `grayscale`     | Grayscale       | `0`     | Fixed-point luminance            |
+| `smoothEnhance` | Natural Enhance | `1`     | Local contrast enhancement       |
+| `sharpen3x3`    | Crisp Sharpen   | `1`     | 3x3 sharpen                      |
+| `boxBlur3x3`    | Soft Blur       | `1`     | 3x3 blur                         |
+| `unsharpMask`   | Phantom Clarity | `1`     | Delivery-oriented clarity filter |
+
+Use `listPixelFilters()` to drive UI controls from metadata instead of hardcoding
+labels.
+
+### High-Level Filtering
+
+```ts
+import { applyFilter, applyFilters } from "@paramission-lab/phantom";
+
+const one = await applyFilter(input, "smoothEnhance", { tileSize: 512 });
+const many = await applyFilters(input, ["smoothEnhance", "unsharpMask"]);
+```
+
+Options:
+
+| Option       | Description                                                              |
+| ------------ | ------------------------------------------------------------------------ |
+| `tileSize`   | Tile edge length in pixels                                               |
+| `signal`     | Abort signal checked between tiles                                       |
+| `onProgress` | Receives completed tile count, total tiles, percent, and tile descriptor |
+
+### Low-Level Processing
+
+```ts
+import {
+  processRawImage,
+  processRawImagePipeline,
+  processRawImageWithStats,
+} from "@paramission-lab/phantom";
+
+const output = await processRawImage(input, {
+  filter: "sharpen3x3",
+  tileSize: 512,
+  overlap: 1,
+});
+
+const { image, stats } = await processRawImageWithStats(input, {
+  filter: "smoothEnhance",
+  onProgress: ({ completedTiles, totalTiles }) => {
+    console.log(`${completedTiles}/${totalTiles}`);
+  },
+});
+
+const recipe = await processRawImagePipeline(
+  input,
+  [{ filter: "smoothEnhance" }, { filter: "unsharpMask" }],
+  { tileSize: 512 },
+);
+```
+
+`processRawImagePipeline()` requires at least one step. If you configure an
+overlap smaller than a filter requires, Phantom throws `PhantomError`.
+
+### Custom Sources and Sinks
+
+Use `TileSource` and `TileSink` when integrating your own decoder, storage
+layer, or encoder:
+
+```ts
+import {
+  processTileSource,
+  type TileSink,
+  type TileSource,
+} from "@paramission-lab/phantom";
+
+const source: TileSource = {
+  read(rect) {
+    return readRgbaBytesFromDecoder(rect);
+  },
+};
+
+const sink: TileSink = {
+  write(rect, data) {
+    writeRgbaBytesToEncoder(rect, data);
+  },
+};
+
+await processTileSource({ width: 32000, height: 32000 }, source, sink, {
+  filter: "smoothEnhance",
+  tileSize: 512,
+  overlap: 1,
 });
 ```
 
-Create an SDK job recipe before processing or exporting:
+## Masks and Background Replacement
+
+```ts
+import {
+  applyAlphaMask,
+  refineAlphaMask,
+  replaceTransparentBackground,
+} from "@paramission-lab/phantom";
+```
+
+`AlphaMask` is a one-channel mask:
+
+```ts
+interface AlphaMask {
+  readonly width: number;
+  readonly height: number;
+  readonly data: Uint8Array;
+}
+```
+
+Apply a segmentation mask from any provider:
+
+```ts
+const cutout = applyAlphaMask(input, mask, {
+  threshold: 8,
+  softness: 24,
+  featherRadius: 2,
+  edgeSensitivity: 48,
+});
+
+console.log(cutout.removedPixels, cutout.partialPixels);
+```
+
+Mask refinement behavior:
+
+| Option            | Default | Description                                  |
+| ----------------- | ------- | -------------------------------------------- |
+| `threshold`       | `4`     | Discard mask noise below this alpha value    |
+| `softness`        | `12`    | Width of the transition around the threshold |
+| `featherRadius`   | `2`     | Color-guided edge filter radius, capped at 3 |
+| `edgeSensitivity` | `48`    | RGB distance used for edge-aware mask mixing |
+
+Flatten transparent pixels onto a background:
+
+```ts
+const jpegReady = replaceTransparentBackground(cutout, {
+  r: 255,
+  g: 255,
+  b: 255,
+});
+```
+
+## Image Conversion and Optimization
+
+Browser image conversion uses host canvas encoders:
+
+```ts
+import {
+  canEncodeImageFormat,
+  convertImageFile,
+  getImageFormatProfile,
+  listImageFormats,
+  optimizeImageFile,
+} from "@paramission-lab/phantom";
+
+const webp = await optimizeImageFile(file, {
+  format: "webp",
+  quality: 0.92,
+});
+
+const png = await convertImageFile(file, { format: "png" });
+```
+
+Recognized formats:
+
+| Format         | MIME type    | Alpha | Browser encode |
+| -------------- | ------------ | ----- | -------------- |
+| `png`          | `image/png`  | Yes   | Yes            |
+| `jpeg` / `jpg` | `image/jpeg` | No    | Yes            |
+| `webp`         | `image/webp` | Yes   | Yes            |
+| `avif`         | `image/avif` | Yes   | Yes            |
+| `bmp`          | `image/bmp`  | No    | No             |
+| `gif`          | `image/gif`  | Yes   | No             |
+| `tiff`         | `image/tiff` | Yes   | No             |
+
+`bmp`, `gif`, and `tiff` can be identified by metadata helpers, but
+`convertImageFile()` and `encodeRawImage()` throw if the browser cannot encode
+the requested format.
+
+Supported browser inputs:
+
+- `Blob` or `File`
+- URL string or `URL`
+- `HTMLCanvasElement`
+- `OffscreenCanvas`
+- `ImageBitmap`
+- `ImageData`
+- `RawRgbaImage`
+
+For formats without alpha support, pass `background` to flatten transparency:
+
+```ts
+const jpeg = await convertImageFile(cutout, {
+  format: "jpeg",
+  quality: 0.9,
+  background: { r: 255, g: 255, b: 255 },
+});
+```
+
+`optimizeImageFile()` defaults to `keepOriginalWhenSmaller: true` for `Blob`
+inputs, so it returns the original blob when re-encoding would increase size.
+
+## AI Background Removal
+
+The AI entry point is browser-oriented and lazy-loads
+`@huggingface/transformers` only when used:
+
+```ts
+import ai from "@paramission-lab/phantom/ai";
+
+const cutout = await ai.removeBackground(imageCanvas, {
+  onProgress: (progress) => console.log(progress.label, progress.percent),
+});
+```
+
+One-call API:
+
+```ts
+import { removeBackgroundAi } from "@paramission-lab/phantom/ai";
+
+const result = await removeBackgroundAi(imageCanvas, {
+  backend: "auto",
+  maskCutoff: 38,
+  softness: 54,
+  featherRadius: 2,
+  subjectGuard: 70,
+});
+
+console.log(result.backend, result.model, result.removedPixels);
+```
+
+Reuse one loaded model across many images:
+
+```ts
+import { applyAlphaMask } from "@paramission-lab/phantom";
+import { createPhantomAi } from "@paramission-lab/phantom/ai";
+
+const remover = createPhantomAi();
+await remover.preload();
+
+try {
+  const { mask } = await remover.createMask(imageCanvas);
+  const cutout = applyAlphaMask(input, mask);
+} finally {
+  await remover.dispose();
+}
+```
+
+Configuration:
+
+| Option            | Default                     | Description                                               |
+| ----------------- | --------------------------- | --------------------------------------------------------- |
+| `model`           | `onnx-community/ormbg-ONNX` | Transformers.js background-removal model                  |
+| `backend`         | `auto`                      | `auto`, `webgpu`, or `wasm`                               |
+| `webgpuDtype`     | `fp16`                      | WebGPU precision: `fp16` or `fp32`                        |
+| `wasmDtype`       | `q8`                        | CPU/WASM fallback precision: `q4`, `q8`, or `fp32`        |
+| `maskCutoff`      | `38`                        | Demo-style foreground cutoff                              |
+| `subjectGuard`    | `70`                        | Demo-style guard percentage used to tune edge sensitivity |
+| `threshold`       | derived from `maskCutoff`   | Direct alpha-mask threshold override                      |
+| `softness`        | `54`                        | Edge transition width                                     |
+| `featherRadius`   | `2`                         | Color-guided refinement radius                            |
+| `edgeSensitivity` | derived from `subjectGuard` | Direct edge sensitivity override                          |
+| `onProgress`      | none                        | Model loading and inference progress callback             |
+
+Concurrent `preload()` and `createMask()` calls on the same
+`BrowserBackgroundRemover` share one model initialization promise. Call
+`dispose()` when the model is no longer needed.
+
+The default model is Apache-2.0 licensed. Model weights are downloaded on first
+AI use and cached by the browser runtime when available. Review model licenses
+before selecting a different model.
+
+## Asset Planning
+
+`createPhantomAssetPlan()` returns a production recipe for filters, tile size,
+memory estimates, and output encoding:
 
 ```ts
 import phantom, { createPhantomAssetPlan } from "@paramission-lab/phantom";
 
-const plan = createPhantomAssetPlan(input, { goal: "delivery" });
+const plan = createPhantomAssetPlan(input, {
+  goal: "delivery",
+  maxWorkerBytes: 32 * 1024 * 1024,
+});
+
 const processed = await phantom.applyFilters(input, plan.filters, {
   tileSize: plan.tileSize,
 });
 ```
 
-Convert or optimize browser-readable image files:
+Goals:
 
-```ts
-import { convertImageFile, optimizeImageFile } from "@paramission-lab/phantom";
+| Goal                 | Default filters | Recommended format                     |
+| -------------------- | --------------- | -------------------------------------- |
+| `delivery`           | `smoothEnhance` | `jpeg` without alpha, otherwise `webp` |
+| `archive`            | none            | `png`                                  |
+| `preview`            | `smoothEnhance` | `webp`                                 |
+| `transparent-cutout` | `unsharpMask`   | `webp`                                 |
 
-const webp = await optimizeImageFile(file, { format: "webp", quality: 0.92 });
-const png = await convertImageFile(file, { format: "png" });
-```
+The plan also reports `pixels`, `rgbaBytes`, transparency, processing estimates,
+selected `tileSize`, required `overlap`, and encoder options.
 
-Track progress and collect runtime stats:
+## Workers
 
-```ts
-import { processRawImageWithStats } from "@paramission-lab/phantom";
-
-const { image, stats } = await processRawImageWithStats(input, {
-  tileSize: 512,
-  filter: "smoothEnhance",
-  onProgress: ({ completedTiles, totalTiles, percent }) => {
-    console.log(`${completedTiles}/${totalTiles}`, `${percent.toFixed(0)}%`);
-  },
-});
-
-console.log(stats.processedTiles, stats.elapsedMs);
-```
-
-Run reusable multi-filter recipes:
-
-```ts
-import { processRawImagePipeline } from "@paramission-lab/phantom";
-
-const output = await processRawImagePipeline(
-  input,
-  [{ filter: "smoothEnhance" }, { filter: "sharpen3x3" }],
-  { tileSize: 512 },
-);
-```
-
-Run tile work off the browser main thread:
+Use `TileWorkerPool` in browser apps that can run module workers:
 
 ```ts
 import { TileWorkerPool } from "@paramission-lab/phantom/workers";
@@ -285,201 +623,59 @@ try {
 }
 ```
 
-`TileWorkerPool` uses transferable `Uint8Array` tile buffers. If one worker
-fails, only the tile assigned to that worker is rejected; other in-flight worker
-tasks can still complete. Use `SharedTileBuffer` when the page is cross-origin
-isolated and you need shared tile memory.
+`TileWorkerPool` transfers tile `Uint8Array` buffers to workers. If one worker
+fails, only tasks assigned to that worker are rejected; unrelated in-flight
+tasks can still complete.
 
-Prepare raw images before processing:
-
-```ts
-import {
-  createRawRgbaImage,
-  cropRawImage,
-  resizeRawImage,
-} from "@paramission-lab/phantom";
-
-const transparent = createRawRgbaImage({ width: 1024, height: 1024 });
-const product = cropRawImage(input, { x: 120, y: 80, width: 640, height: 640 });
-const preview = resizeRawImage(product, { width: 256, height: 256 });
-```
-
-## AI Background Removal
-
-The optional browser entry point is part of the SDK. It lazily loads the model,
-uses WebGPU when available, and falls back to quantized WASM.
+Use `SharedTileBuffer` when the runtime supports shared memory:
 
 ```ts
-import ai from "@paramission-lab/phantom/ai";
+import { SharedTileBuffer } from "@paramission-lab/phantom/workers";
 
-const cutout = await ai.removeBackground(imageCanvas, {
-  onProgress: (progress) => console.log(progress.label),
+const tileMemory = new SharedTileBuffer(512 * 512 * 4, {
+  preferShared: true,
 });
 
-canvasContext.putImageData(
-  new ImageData(
-    new Uint8ClampedArray(cutout.data),
-    cutout.width,
-    cutout.height,
-  ),
-  0,
-  0,
-);
+const tileBytes = tileMemory.view();
+console.log(tileMemory.shared);
 ```
 
-`removeBackgroundAi()` accepts a browser `Blob`, URL, `HTMLCanvasElement`, or
-`OffscreenCanvas`. Its default mask refinement is the same tuned preset used by
-the demo: mask cutoff `38`, edge softness `54`, feather `2px`, and subject guard
-`70%`. The result includes `data`, `width`, `height`, `backend`, and `model`.
+Set `requireShared: true` when falling back to `ArrayBuffer` would be incorrect
+for your workload.
 
-For many images, reuse one loaded model:
+## GPU and Browser Capabilities
 
 ```ts
-import { applyAlphaMask } from "@paramission-lab/phantom";
-import { createPhantomAi } from "@paramission-lab/phantom/ai";
+import { detectCapabilities } from "@paramission-lab/phantom/gpu";
 
-const ai = createPhantomAi();
-await ai.preload();
-
-const { mask } = await ai.createMask(imageCanvas);
-const cutout = applyAlphaMask(input, mask);
-
-await ai.dispose();
+const capabilities = detectCapabilities();
+console.log(capabilities.backend);
 ```
 
-All concurrent `preload()` and `createMask()` calls on the same instance share one model initialization promise. `createAiBackgroundRemover()` remains available as the descriptive alias.
+`detectCapabilities()` returns:
 
-Configuration:
+| Field                 | Description                             |
+| --------------------- | --------------------------------------- |
+| `backend`             | `webgpu`, `wasm-simd`, or `cpu`         |
+| `webgpu`              | Whether `navigator.gpu` is available    |
+| `sharedArrayBuffer`   | Whether `SharedArrayBuffer` exists      |
+| `crossOriginIsolated` | Whether the browser context is isolated |
+| `hardwareConcurrency` | Reported worker concurrency or `1`      |
 
-| Option          | Default                     | Description                                 |
-| --------------- | --------------------------- | ------------------------------------------- |
-| `model`         | `onnx-community/ormbg-ONNX` | Transformers.js-compatible background model |
-| `backend`       | `auto`                      | `auto`, `webgpu`, or CPU/WASM fallback      |
-| `webgpuDtype`   | `fp16`                      | WebGPU precision: `fp16` or `fp32`          |
-| `wasmDtype`     | `q8`                        | Fallback precision: `q4`, `q8`, or `fp32`   |
-| `maskCutoff`    | `38`                        | Demo-style AI mask cutoff                   |
-| `softness`      | `54`                        | Edge transition width after AI inference    |
-| `featherRadius` | `2`                         | Color-guided edge refinement radius         |
-| `subjectGuard`  | `70`                        | Demo-style subject guard percentage         |
-| `onProgress`    | none                        | Progress callback for model loading         |
-
-The default `onnx-community/ormbg-ONNX` model is Apache-2.0 licensed. Model
-weights are downloaded on first AI use and cached by the runtime; importing the
-core package does not initialize the AI runtime. Review the model license before
-selecting another model. For offline deployments, configure Transformers.js to
-use self-hosted model files before creating the remover.
-
-## Architecture
-
-The core does not depend on DOM APIs:
-
-| Layer                    | Responsibility                                                                                   |
-| ------------------------ | ------------------------------------------------------------------------------------------------ |
-| Local file or decoder    | Reads source pixels from browser, Node.js, or a custom image decoder.                            |
-| `TileSource`             | Exposes bounded rectangular reads without forcing a full-frame allocation.                       |
-| Overlap tile planner     | Splits huge images into convolution-safe tiles.                                                  |
-| CPU fixed-point kernels  | Provides the deterministic correctness baseline.                                                 |
-| Worker pool              | Runs transferable tile jobs off the main browser thread through the exported tile-worker module. |
-| Zig WASM backend         | Runs compiled kernels from `dist/phantom_kernel.wasm`.                                           |
-| WebGPU compute backend   | Accelerates tile processing when WebGPU is available.                                            |
-| AI alpha mask provider   | Generates subject masks for people, animals, and complex scenes.                                 |
-| `TileSink`               | Writes processed tile output to any storage or encoder integration.                              |
-| WebGPU or WebGL renderer | Uploads processed RGBA data for browser preview.                                                 |
-
-Compressed image streaming is intentionally kept outside the core. Integrate a decoder by implementing `TileSource.read(rect)` and `TileSink.write(rect, data)`. This keeps memory bounded and avoids coupling the pipeline to one image codec.
-
-## Scripts
-
-| Command              | Purpose                                                             |
-| -------------------- | ------------------------------------------------------------------- |
-| `npm test`           | Run unit and integration tests.                                     |
-| `npm run dev`        | Run the separated demo app from `demo/` locally.                    |
-| `npm run demo:build` | Build the separated demo app into `demo-dist/`.                     |
-| `npm run typecheck`  | Run TypeScript strict checks.                                       |
-| `npm run lint`       | Run ESLint.                                                         |
-| `npm run build`      | Emit TypeScript build artifacts to `dist/`.                         |
-| `npm run prepare`    | Build TypeScript for direct Git dependency installation.            |
-| `npm run build:wasm` | Compile `zig/src/phantom-kernel.zig` to `dist/phantom_kernel.wasm`. |
-| `npm run ci`         | Run typecheck, lint, tests, TypeScript build, and Zig WASM build.   |
-| `npm run release:*`  | Bump package version with npm, for example `release:patch`.         |
-
-## Development
-
-Node.js 22 and Zig 0.15.2 match the GitHub Actions environment.
-
-```bash
-npm ci
-npm run ci
-npm run demo:build
-npm run dev
-```
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for pull-request requirements and [SECURITY.md](SECURITY.md) for private vulnerability reporting.
-
-## npm Release
-
-The repository includes CI/CD for publishing the SDK to
-[npmjs.com](https://www.npmjs.com/). Configure these GitHub organization or
-repository settings before the first release:
-
-1. Create an npm automation token with publish access.
-2. Add it to GitHub Actions secrets as `NPM_TOKEN`.
-3. Create a GitHub Environment named `npm` and require reviewer approval if the
-   package should not publish automatically.
-4. Confirm the npm organization scope `@paramission-lab` exists and that the
-   `NPM_TOKEN` account has publish access to it.
-
-GitHub organizations and npm organizations are separate. The npm publish step
-requires an npm organization or user scope named `paramission-lab`; creating only
-`github.com/ParamissionLab` is not enough.
-
-The original `v0.1.0` tag contains the obsolete `@paramissionlab/phantom`
-package name and must not be moved or reused. Publish the corrected package from
-the current `1.0.1` metadata with a new tag:
-
-```bash
-git add package.json package-lock.json CHANGELOG.md README.md SECURITY.md .github/workflows/publish-npm.yml Plan.md
-git commit -m "Fix npm release scope validation"
-git tag v1.0.1
-git push origin main --follow-tags
-```
-
-Future patch release flow:
-
-```bash
-npm run release:patch
-git push origin main --follow-tags
-```
-
-Pushing a `v*.*.*` tag starts the `Publish npm` workflow. The workflow checks
-out that tag, requires the tag to equal `v<package.version>`, verifies the
-package is named `@paramission-lab/phantom`, runs `npm run ci`, builds the demo,
-validates the tarball with `npm pack --dry-run`, and publishes with npm
-provenance.
-
-You can still create a GitHub Release for the same tag after the tag is pushed.
-Publishing a GitHub Release also starts the same workflow, protected by the
-`npm` environment.
-
-Manual publish from GitHub Actions is also available through the `Publish npm`
-workflow dispatch input. Use a release tag such as `v1.0.1`.
-
-If `npm publish` fails with `E404 Scope not found`, create the npm organization
-`paramission-lab` on npmjs.com or change `package.json` to a scope that already
-exists and that your `NPM_TOKEN` can publish to. After creating the npm
-organization, add the token owner as an owner or publisher, create a new patch
-release tag, and run the workflow from that tag.
+The GPU package also exports `WebGpuComputeBackend`, `WebGpuRgbaRenderer`, and
+`WebGlRgbaRenderer` for browser integrations that need direct rendering or
+compute control.
 
 ## Zig WASM Backend
 
-Build the kernel:
+Build the TypeScript output and Zig kernel:
 
 ```bash
 npm run build
 npm run build:wasm
 ```
 
-Instantiate it in the browser or another WebAssembly host:
+Instantiate the backend:
 
 ```ts
 import { instantiateZigBackend } from "@paramission-lab/phantom/wasm";
@@ -487,38 +683,161 @@ import { instantiateZigBackend } from "@paramission-lab/phantom/wasm";
 const bytes = await fetch("/phantom_kernel.wasm").then((response) =>
   response.arrayBuffer(),
 );
+
 const backend = await instantiateZigBackend(bytes);
 const output = backend.process(input, "grayscale");
 ```
 
-## Browser Capability Selection
+The Zig backend supports whole-image processing, tile processing, and alpha-mask
+application through the `WasmKernelBackend` interface. The release package ships
+`dist`; the `zig/` source tree is for repository development.
+
+## Error Handling
+
+Use `PhantomError` for SDK validation and backend failures:
 
 ```ts
-import { detectCapabilities } from "@paramission-lab/phantom/gpu";
+import { PhantomError, processRawImage } from "@paramission-lab/phantom";
 
-const capabilities = detectCapabilities();
+try {
+  await processRawImage(input, {
+    filter: "sharpen3x3",
+    overlap: 0,
+  });
+} catch (error) {
+  if (error instanceof PhantomError) {
+    console.error(error.message);
+  } else {
+    throw error;
+  }
+}
 ```
 
-`detectCapabilities()` returns `webgpu`, `wasm-simd`, or `cpu` as the preferred backend. WASM threads require `SharedArrayBuffer` and cross-origin isolation headers.
+Common validation failures:
 
-## Development Notes
+- Invalid dimensions or rectangle bounds.
+- RGBA data length does not equal `width * height * 4`.
+- Unsupported filter or image format.
+- Convolution filter overlap is too small.
+- Browser canvas, fetch, worker, WebGPU, or shared-memory APIs are unavailable.
 
-- The default CPU path is the correctness baseline.
-- Browser worker consumers should pass `new URL("@paramission-lab/phantom/worker", import.meta.url)` or an equivalent bundler-resolved URL to `TileWorkerPool`.
-- AI inference should run on a bounded working image. Refine and apply its alpha
-  mask tile-by-tile for 32K/64K outputs instead of allocating a full-resolution
-  neural-network tensor.
-- `tileSize` and `overlap` are explicit knobs; convolution filters now reject
-  overlap smaller than the filter radius to avoid tile-edge artifacts.
-- WebGPU compute kernels are not hardcoded into the core. Add them behind the same `TileSource` and `TileSink` contracts.
-- Memory64 is tracked as an exploration item because browser support remains environment-dependent.
+## Architecture
+
+| Layer                  | Responsibility                                                    |
+| ---------------------- | ----------------------------------------------------------------- |
+| Decoder or caller      | Provides source pixels from browser, Node.js, or a custom decoder |
+| `TileSource`           | Reads bounded rectangular RGBA regions                            |
+| Tile planner           | Splits the image into overlap-safe tile descriptors               |
+| CPU kernels            | Provide deterministic filter behavior                             |
+| Worker pool            | Runs transferable tile jobs off the browser main thread           |
+| Zig WASM backend       | Runs compiled kernels from `phantom_kernel.wasm`                  |
+| WebGPU compute backend | Accelerates compatible processing in WebGPU runtimes              |
+| AI mask provider       | Creates semantic alpha masks in browser apps                      |
+| `TileSink`             | Writes processed tile output to storage or an encoder             |
+| Renderer adapters      | Upload RGBA data to WebGPU or WebGL previews                      |
+
+Compressed image streaming is intentionally outside the core. Implement
+`TileSource.read(rect)` and `TileSink.write(rect, data)` to integrate a decoder
+or encoder without coupling Phantom to one codec.
+
+## Development
+
+Requirements:
+
+- Node.js 22 or later
+- npm 10 or later
+- Zig 0.15.2 for `npm run build:wasm` and `npm run ci`
+
+Install dependencies:
+
+```bash
+npm ci
+```
+
+Useful scripts:
+
+| Command                 | Purpose                                                            |
+| ----------------------- | ------------------------------------------------------------------ |
+| `npm test`              | Run Vitest tests                                                   |
+| `npm run typecheck`     | Run TypeScript strict checks                                       |
+| `npm run lint`          | Run ESLint                                                         |
+| `npm run build`         | Emit TypeScript build artifacts to `dist/`                         |
+| `npm run build:wasm`    | Compile `zig/src/phantom-kernel.zig` to `dist/phantom_kernel.wasm` |
+| `npm run demo:build`    | Build the demo app to `demo-dist/`                                 |
+| `npm run dev`           | Run the demo app locally                                           |
+| `npm run ci`            | Run typecheck, lint, tests, TypeScript build, and Zig WASM build   |
+| `npm run release:patch` | Bump package patch version                                         |
+| `npm run release:minor` | Bump package minor version                                         |
+| `npm run release:major` | Bump package major version                                         |
+
+Full local verification:
+
+```bash
+npm run ci
+npm run demo:build
+npm pack --dry-run
+```
+
+Do not commit generated `dist/`, `demo-dist/`, model weights, caches, local
+environment files, or Zig build output.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for pull-request rules and
+[SECURITY.md](SECURITY.md) for private vulnerability reporting.
+
+## Release Process
+
+The repository publishes to npm through
+[`.github/workflows/publish-npm.yml`](.github/workflows/publish-npm.yml). The
+workflow runs on:
+
+- Pushes to tags matching `v*.*.*`.
+- Published GitHub Releases.
+- Manual workflow dispatch with a release tag input.
+
+Before the first npm release, configure:
+
+1. An npm automation token with publish access.
+2. A GitHub Actions secret named `NPM_TOKEN`.
+3. A GitHub Environment named `npm`.
+4. Access to the npm organization scope `@paramission-lab`.
+
+GitHub organizations and npm organizations are separate. The publish workflow
+expects `package.json` to use `@paramission-lab/phantom`; creating only the
+GitHub organization is not enough.
+
+Release checklist:
+
+```bash
+npm ci
+npm run ci
+npm run demo:build
+npm pack --dry-run
+npm version patch
+git push origin main --follow-tags
+```
+
+Pushing a tag such as `v1.0.2` starts the publish workflow. The workflow checks
+out the tag, verifies the package name, verifies the tag equals
+`v<package.version>`, runs full validation, builds the demo, performs
+`npm pack --dry-run`, and publishes with npm provenance.
+
+If publishing fails with `E404 Scope not found`, create the npm organization
+`paramission-lab` on npmjs.com or change the package scope to one the token can
+publish. Then create a new patch version and tag; do not move an already pushed
+release tag.
 
 ## Operational Limits
 
-- A 32K/64K target is processed as bounded tiles; it is not a promise that every browser or decoder can allocate a complete frame.
-- AI quality depends on the selected model, input, and browser backend. Core background removal is AI-mask based; the old fuzzy fallback is no longer included.
-- WebGPU availability and supported precision vary by browser and GPU driver. The SDK falls back when initialization fails.
-- `SharedArrayBuffer` requires cross-origin isolation headers.
+- Phantom can process very large targets as bounded tiles, but this does not
+  mean every browser, decoder, canvas, or GPU can allocate a full 32K/64K frame.
+- Browser image conversion depends on host canvas encoder support.
+- WebGPU support and precision vary by browser, GPU, and driver.
+- `SharedArrayBuffer` in browsers requires cross-origin isolation headers.
+- AI background-removal quality depends on model choice, input content, backend,
+  and mask-refinement settings.
+- For extreme-resolution AI cutouts, run inference on a bounded working image
+  and apply/refine the resulting mask through tile-aware workflows instead of
+  allocating a full-resolution neural-network tensor.
 
 ## Project Documents
 
