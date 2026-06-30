@@ -7,6 +7,10 @@ interface PendingTile {
   readonly reject: (reason: unknown) => void;
 }
 
+interface InflightTile extends PendingTile {
+  readonly worker: Worker;
+}
+
 interface WorkerResponse {
   readonly id: number;
   readonly result?: TileResult;
@@ -20,13 +24,13 @@ export class TileWorkerPool {
   private readonly workers: Worker[] = [];
   private readonly idleWorkers: Worker[] = [];
   private readonly pendingQueue: PendingTile[] = [];
-  private readonly inflight = new Map<number, PendingTile>();
+  private readonly inflight = new Map<number, InflightTile>();
   private nextId = 1;
   private disposed = false;
 
   public constructor(
     workerUrl: URL | string,
-    concurrency = navigator.hardwareConcurrency || 2,
+    concurrency = globalThis.navigator?.hardwareConcurrency ?? 2,
   ) {
     if (!Number.isInteger(concurrency) || concurrency <= 0) {
       throw new Error("concurrency must be a positive integer.");
@@ -84,7 +88,7 @@ export class TileWorkerPool {
 
       const id = this.nextId;
       this.nextId += 1;
-      this.inflight.set(id, task);
+      this.inflight.set(id, { ...task, worker });
       worker.postMessage(
         {
           id,
@@ -103,7 +107,9 @@ export class TileWorkerPool {
     }
 
     this.inflight.delete(response.id);
-    this.idleWorkers.push(worker);
+    if (task.worker === worker && !this.disposed) {
+      this.idleWorkers.push(worker);
+    }
 
     if (response.error !== undefined) {
       task.reject(new Error(response.error));
@@ -118,10 +124,29 @@ export class TileWorkerPool {
 
   private rejectWorkerTasks(worker: Worker, message: string): void {
     for (const [id, task] of this.inflight.entries()) {
-      task.reject(new Error(message));
-      this.inflight.delete(id);
+      if (task.worker === worker) {
+        task.reject(new Error(message));
+        this.inflight.delete(id);
+      }
     }
-    this.idleWorkers.push(worker);
+    this.removeWorker(worker);
+    if (this.workers.length === 0) {
+      for (const task of this.pendingQueue.splice(0)) {
+        task.reject(new Error("No tile workers are available."));
+      }
+    }
     this.drainQueue();
+  }
+
+  private removeWorker(worker: Worker): void {
+    const workerIndex = this.workers.indexOf(worker);
+    if (workerIndex >= 0) {
+      this.workers.splice(workerIndex, 1);
+    }
+    const idleIndex = this.idleWorkers.indexOf(worker);
+    if (idleIndex >= 0) {
+      this.idleWorkers.splice(idleIndex, 1);
+    }
+    worker.terminate();
   }
 }

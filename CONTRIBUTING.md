@@ -41,6 +41,7 @@ Do not commit generated `dist/`, `demo-dist/`, model weights, caches, or local e
 - Keep the core entry point free of DOM and machine-learning initialization.
 - Process extreme-resolution data in bounded tiles; do not allocate a full 32K/64K RGBA frame in a kernel.
 - Keep the TypeScript CPU implementation as the correctness reference for accelerated backends.
+- Keep browser worker entry points package-exported when they are required at runtime by `TileWorkerPool`.
 - Dispose AI pipelines and GPU resources explicitly.
 - Document the license of every model or asset introduced by a contribution.
 

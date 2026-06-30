@@ -24,18 +24,28 @@ Phantom.
 Directly from a public GitHub repository:
 
 ```bash
-npm install git+https://github.com/ParamissionLab/phantom.git#v0.1.0
+npm install git+https://github.com/ParamissionLab/phantom.git#v1.0.1
 ```
 
 For a private organization repository configured with SSH access:
 
 ```bash
-npm install git+ssh://git@github.com/ParamissionLab/phantom.git#v0.1.0
+npm install git+ssh://git@github.com/ParamissionLab/phantom.git#v1.0.1
 ```
 
 Use a release tag or full commit SHA instead of `main` so installs remain reproducible. npm installs development dependencies and runs the package `prepare` script to compile TypeScript when installing from Git. The optional Zig WASM binary is not compiled during Git installation; build it explicitly with Zig when that backend is required.
 
 The AI runtime is an optional dependency and is initialized only when `@paramission-lab/phantom/ai` is used. Model weights are not included in the npm package.
+
+## When to Use Phantom
+
+Use Phantom when you need a TypeScript-first image SDK that keeps memory bounded
+with tiles and can move from a simple CPU path to browser workers, WebGPU, Zig
+WASM, and optional AI background removal without changing the public API.
+
+The practical rule: start with `phantom.edit(image)` for product features. Drop
+down to `processRawImage()`, `TileSource`, workers, GPU, or WASM only when you
+need tighter control.
 
 ## Features
 
@@ -46,7 +56,11 @@ The AI runtime is an optional dependency and is initialized only when `@paramiss
 - Progress callbacks and runtime stats for tile-processing health checks.
 - Multi-step raw-image filter pipelines for reusable processing recipes.
 - Raw RGBA allocation, cloning, cropping, and resizing utilities.
-- Default helpers such as `applyFilter`, `resizeImage`, `planAsset`, `convertImage`, and `optimizeImage`.
+- One-door editing pipeline through `phantom.edit(image)` for resizing,
+  cropping, filtering, masking, background flattening, and planning without
+  learning many separate functions.
+- Default helpers such as `applyFilter`, `resizeImage`, `planAsset`,
+  `convertImage`, and `optimizeImage`.
 - Browser image conversion and clarity-preserving re-encoding for PNG, JPEG, WebP, AVIF, BMP, GIF, and TIFF workflows.
 - Optional browser AI background removal for people, products, animals, and complex scenes.
 - Phantom Asset Plan recipes for format, filter, tile, and memory recommendations.
@@ -61,8 +75,8 @@ The AI runtime is an optional dependency and is initialized only when `@paramiss
 
 ## Quick Start
 
-For simple use cases, import the default `phantom` object and let Phantom choose
-safe tile settings:
+For simple use cases, import the default `phantom` object and use one editing
+pipeline:
 
 ```ts
 import phantom, { type RawRgbaImage } from "@paramission-lab/phantom";
@@ -73,12 +87,29 @@ const input: RawRgbaImage = {
   data: Uint8Array.from([10, 20, 30, 255, 200, 210, 220, 255]),
 };
 
-const preview = phantom.resizeImage(input, 512, 256);
-const enhanced = await phantom.applyFilter(preview);
-const plan = phantom.planAsset(enhanced);
+const output = await phantom
+  .edit(input)
+  .resize(512, 256)
+  .filter("smoothEnhance")
+  .run();
+
+const plan = await phantom.process(output).plan();
 ```
 
-Named imports are also available:
+The pipeline methods are chainable:
+
+| Method         | What it does                                         |
+| -------------- | ---------------------------------------------------- |
+| `crop(rect)`   | Crops with `{ x, y, width, height }`                 |
+| `resize(w,h)`  | Resizes with safe defaults                           |
+| `filter()`     | Applies one filter; defaults to `smoothEnhance`      |
+| `filters()`    | Applies several filters in order                     |
+| `mask()`       | Applies an alpha mask from any segmentation provider |
+| `background()` | Flattens transparent pixels onto a solid color       |
+| `plan()`       | Returns a Phantom asset plan for the current image   |
+| `run()`        | Resolves the edited raw RGBA image                   |
+
+Named imports are still available when you prefer direct functions:
 
 ```ts
 import { applyFilter, resizeImage } from "@paramission-lab/phantom";
@@ -143,28 +174,32 @@ try {
 
 ## Package Entry Points
 
-| Import                             | Purpose                                                        |
-| ---------------------------------- | -------------------------------------------------------------- |
-| `@paramission-lab/phantom`         | Core tiling, filters, masks, pipeline, planning, and utilities |
-| `@paramission-lab/phantom/ai`      | Lazy AI subject-mask generation                                |
-| `@paramission-lab/phantom/gpu`     | WebGPU compute and WebGPU/WebGL renderers                      |
-| `@paramission-lab/phantom/wasm`    | Zig WebAssembly loader and accelerated kernel adapter          |
-| `@paramission-lab/phantom/workers` | Worker pool and shared tile-buffer helpers                     |
+| Import                                         | Purpose                                                        |
+| ---------------------------------------------- | -------------------------------------------------------------- |
+| `@paramission-lab/phantom`                     | Core tiling, filters, masks, pipeline, planning, and utilities |
+| `@paramission-lab/phantom/ai`                  | Lazy AI subject-mask generation                                |
+| `@paramission-lab/phantom/gpu`                 | WebGPU compute and WebGPU/WebGL renderers                      |
+| `@paramission-lab/phantom/wasm`                | Zig WebAssembly loader and accelerated kernel adapter          |
+| `@paramission-lab/phantom/workers`             | Worker pool and shared tile-buffer helpers                     |
+| `@paramission-lab/phantom/worker`              | Short browser worker module path used by `TileWorkerPool`      |
+| `@paramission-lab/phantom/workers/tile-worker` | Long-form alias for the same browser worker module             |
 
 ## Default API
 
-| Function                | Use when you want to                                     |
-| ----------------------- | -------------------------------------------------------- |
-| `makeImage`             | Create a blank or solid-color raw RGBA image             |
-| `resizeImage`           | Resize with simple `width, height` arguments             |
-| `cropImage`             | Crop an image with `{ x, y, width, height }`             |
-| `applyFilter`           | Apply one filter without configuring tile overlap        |
-| `applyFilters`          | Apply multiple filters in order                          |
-| `applyMask`             | Apply an external segmentation mask                      |
-| `replaceBackground`     | Flatten transparent pixels onto a solid background color |
-| `planAsset`             | Pick SDK defaults for filters, tiles, and encoding       |
-| `convertImage`          | Convert browser image inputs between popular formats     |
-| `optimizeImage`         | Re-encode browser images with clarity-preserving defaults |
+| Function            | Use when you want to                                      |
+| ------------------- | --------------------------------------------------------- |
+| `makeImage`         | Create a blank or solid-color raw RGBA image              |
+| `edit`              | Chain common image operations from one object             |
+| `process`           | Alias for `edit` when building a processing pipeline      |
+| `resizeImage`       | Resize with simple `width, height` arguments              |
+| `cropImage`         | Crop an image with `{ x, y, width, height }`              |
+| `applyFilter`       | Apply one filter without configuring tile overlap         |
+| `applyFilters`      | Apply multiple filters in order                           |
+| `applyMask`         | Apply an external segmentation mask                       |
+| `replaceBackground` | Flatten transparent pixels onto a solid background color  |
+| `planAsset`         | Pick SDK defaults for filters, tiles, and encoding        |
+| `convertImage`      | Convert browser image inputs between popular formats      |
+| `optimizeImage`     | Re-encode browser images with clarity-preserving defaults |
 
 Prefer one import for everyday usage:
 
@@ -172,7 +207,7 @@ Prefer one import for everyday usage:
 import phantom from "@paramission-lab/phantom";
 
 const image = phantom.makeImage(800, 600, { r: 255, g: 255, b: 255 });
-const output = await phantom.applyFilter(image, "invert");
+const output = await phantom.edit(image).filter("invert").run();
 ```
 
 Apply a mask from any segmentation provider:
@@ -235,6 +270,26 @@ const output = await processRawImagePipeline(
 );
 ```
 
+Run tile work off the browser main thread:
+
+```ts
+import { TileWorkerPool } from "@paramission-lab/phantom/workers";
+
+const workerUrl = new URL("@paramission-lab/phantom/worker", import.meta.url);
+const pool = new TileWorkerPool(workerUrl, 4);
+
+try {
+  const result = await pool.runTile(tilePayload, "smoothEnhance");
+} finally {
+  pool.dispose();
+}
+```
+
+`TileWorkerPool` uses transferable `Uint8Array` tile buffers. If one worker
+fails, only the tile assigned to that worker is rejected; other in-flight worker
+tasks can still complete. Use `SharedTileBuffer` when the page is cross-origin
+isolated and you need shared tile memory.
+
 Prepare raw images before processing:
 
 ```ts
@@ -296,17 +351,17 @@ All concurrent `preload()` and `createMask()` calls on the same instance share o
 
 Configuration:
 
-| Option        | Default                     | Description                                 |
-| ------------- | --------------------------- | ------------------------------------------- |
-| `model`       | `onnx-community/ormbg-ONNX` | Transformers.js-compatible background model |
-| `backend`     | `auto`                      | `auto`, `webgpu`, or CPU/WASM fallback      |
-| `webgpuDtype` | `fp16`                      | WebGPU precision: `fp16` or `fp32`          |
-| `wasmDtype`   | `q8`                        | Fallback precision: `q4`, `q8`, or `fp32`   |
-| `maskCutoff`  | `38`                        | Demo-style AI mask cutoff                   |
-| `softness`    | `54`                        | Edge transition width after AI inference    |
-| `featherRadius` | `2`                      | Color-guided edge refinement radius         |
-| `subjectGuard` | `70`                      | Demo-style subject guard percentage         |
-| `onProgress`  | none                        | Progress callback for model loading         |
+| Option          | Default                     | Description                                 |
+| --------------- | --------------------------- | ------------------------------------------- |
+| `model`         | `onnx-community/ormbg-ONNX` | Transformers.js-compatible background model |
+| `backend`       | `auto`                      | `auto`, `webgpu`, or CPU/WASM fallback      |
+| `webgpuDtype`   | `fp16`                      | WebGPU precision: `fp16` or `fp32`          |
+| `wasmDtype`     | `q8`                        | Fallback precision: `q4`, `q8`, or `fp32`   |
+| `maskCutoff`    | `38`                        | Demo-style AI mask cutoff                   |
+| `softness`      | `54`                        | Edge transition width after AI inference    |
+| `featherRadius` | `2`                         | Color-guided edge refinement radius         |
+| `subjectGuard`  | `70`                        | Demo-style subject guard percentage         |
+| `onProgress`    | none                        | Progress callback for model loading         |
 
 The default `onnx-community/ormbg-ONNX` model is Apache-2.0 licensed. Model
 weights are downloaded on first AI use and cached by the runtime; importing the
@@ -318,35 +373,35 @@ use self-hosted model files before creating the remover.
 
 The core does not depend on DOM APIs:
 
-| Layer                    | Responsibility                                                             |
-| ------------------------ | -------------------------------------------------------------------------- |
-| Local file or decoder    | Reads source pixels from browser, Node.js, or a custom image decoder.      |
-| `TileSource`             | Exposes bounded rectangular reads without forcing a full-frame allocation. |
-| Overlap tile planner     | Splits huge images into convolution-safe tiles.                            |
-| CPU fixed-point kernels  | Provides the deterministic correctness baseline.                           |
-| Worker pool              | Runs transferable tile jobs off the main browser thread.                   |
-| Zig WASM backend         | Runs compiled kernels from `dist/phantom_kernel.wasm`.                     |
-| WebGPU compute backend   | Accelerates tile processing when WebGPU is available.                      |
-| AI alpha mask provider   | Generates subject masks for people, animals, and complex scenes.           |
-| `TileSink`               | Writes processed tile output to any storage or encoder integration.        |
-| WebGPU or WebGL renderer | Uploads processed RGBA data for browser preview.                           |
+| Layer                    | Responsibility                                                                                   |
+| ------------------------ | ------------------------------------------------------------------------------------------------ |
+| Local file or decoder    | Reads source pixels from browser, Node.js, or a custom image decoder.                            |
+| `TileSource`             | Exposes bounded rectangular reads without forcing a full-frame allocation.                       |
+| Overlap tile planner     | Splits huge images into convolution-safe tiles.                                                  |
+| CPU fixed-point kernels  | Provides the deterministic correctness baseline.                                                 |
+| Worker pool              | Runs transferable tile jobs off the main browser thread through the exported tile-worker module. |
+| Zig WASM backend         | Runs compiled kernels from `dist/phantom_kernel.wasm`.                                           |
+| WebGPU compute backend   | Accelerates tile processing when WebGPU is available.                                            |
+| AI alpha mask provider   | Generates subject masks for people, animals, and complex scenes.                                 |
+| `TileSink`               | Writes processed tile output to any storage or encoder integration.                              |
+| WebGPU or WebGL renderer | Uploads processed RGBA data for browser preview.                                                 |
 
 Compressed image streaming is intentionally kept outside the core. Integrate a decoder by implementing `TileSource.read(rect)` and `TileSink.write(rect, data)`. This keeps memory bounded and avoids coupling the pipeline to one image codec.
 
 ## Scripts
 
-| Command              | Purpose                                                           |
-| -------------------- | ----------------------------------------------------------------- |
-| `npm test`           | Run unit and integration tests.                                   |
-| `npm run dev`        | Run the separated demo app from `demo/` locally.                  |
-| `npm run demo:build` | Build the separated demo app into `demo-dist/`.                   |
-| `npm run typecheck`  | Run TypeScript strict checks.                                     |
-| `npm run lint`       | Run ESLint.                                                       |
-| `npm run build`      | Emit TypeScript build artifacts to `dist/`.                       |
-| `npm run prepare`    | Build TypeScript for direct Git dependency installation.          |
+| Command              | Purpose                                                             |
+| -------------------- | ------------------------------------------------------------------- |
+| `npm test`           | Run unit and integration tests.                                     |
+| `npm run dev`        | Run the separated demo app from `demo/` locally.                    |
+| `npm run demo:build` | Build the separated demo app into `demo-dist/`.                     |
+| `npm run typecheck`  | Run TypeScript strict checks.                                       |
+| `npm run lint`       | Run ESLint.                                                         |
+| `npm run build`      | Emit TypeScript build artifacts to `dist/`.                         |
+| `npm run prepare`    | Build TypeScript for direct Git dependency installation.            |
 | `npm run build:wasm` | Compile `zig/src/phantom-kernel.zig` to `dist/phantom_kernel.wasm`. |
-| `npm run ci`         | Run typecheck, lint, tests, TypeScript build, and Zig WASM build. |
-| `npm run release:*`  | Bump package version with npm, for example `release:patch`.       |
+| `npm run ci`         | Run typecheck, lint, tests, TypeScript build, and Zig WASM build.   |
+| `npm run release:*`  | Bump package version with npm, for example `release:patch`.         |
 
 ## Development
 
@@ -449,6 +504,7 @@ const capabilities = detectCapabilities();
 ## Development Notes
 
 - The default CPU path is the correctness baseline.
+- Browser worker consumers should pass `new URL("@paramission-lab/phantom/worker", import.meta.url)` or an equivalent bundler-resolved URL to `TileWorkerPool`.
 - AI inference should run on a bounded working image. Refine and apply its alpha
   mask tile-by-tile for 32K/64K outputs instead of allocating a full-resolution
   neural-network tensor.

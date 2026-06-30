@@ -42,6 +42,27 @@ export interface FilterOptions {
   readonly onProgress?: (progress: ProcessProgress) => void;
 }
 
+export interface PhantomEditPipeline {
+  crop(rect: Rect): PhantomEditPipeline;
+  resize(
+    width: number,
+    height: number,
+    options?: ResizeRawImageOptions,
+  ): PhantomEditPipeline;
+  filter(filter?: PixelFilter, options?: FilterOptions): PhantomEditPipeline;
+  filters(
+    filters: readonly PixelFilter[],
+    options?: FilterOptions,
+  ): PhantomEditPipeline;
+  mask(
+    mask: AlphaMask,
+    options?: AlphaMaskRefinementOptions,
+  ): PhantomEditPipeline;
+  background(color: RgbColor): PhantomEditPipeline;
+  plan(options?: PhantomAssetPlanOptions): Promise<PhantomAssetPlan>;
+  run(): Promise<RawRgbaImage>;
+}
+
 /**
  * Allocates a raw RGBA image with a compact width/height signature.
  */
@@ -157,8 +178,23 @@ export function optimizeImage(
   return optimizeImageFile(input, options);
 }
 
+/**
+ * Starts a beginner-friendly image editing pipeline. It keeps the common flow
+ * on one object while preserving the lower-level functions for advanced use.
+ */
+export function editImage(
+  image: RawRgbaImage | Promise<RawRgbaImage>,
+): PhantomEditPipeline {
+  return new PhantomEditSession(Promise.resolve(image));
+}
+
+/** Short alias for `editImage()` when callers think in processing pipelines. */
+export const processImage = editImage;
+
 export const phantom = {
   makeImage,
+  edit: editImage,
+  process: processImage,
   cropImage,
   resizeImage,
   applyFilter,
@@ -169,6 +205,69 @@ export const phantom = {
   convertImage,
   optimizeImage,
 } as const;
+
+class PhantomEditSession implements PhantomEditPipeline {
+  public constructor(private readonly imagePromise: Promise<RawRgbaImage>) {}
+
+  public crop(rect: Rect): PhantomEditPipeline {
+    return this.next((image) => cropImage(image, rect));
+  }
+
+  public resize(
+    width: number,
+    height: number,
+    options: ResizeRawImageOptions = {},
+  ): PhantomEditPipeline {
+    return this.next((image) => resizeImage(image, width, height, options));
+  }
+
+  public filter(
+    filter: PixelFilter = "smoothEnhance",
+    options: FilterOptions = {},
+  ): PhantomEditPipeline {
+    return this.nextAsync((image) => applyFilter(image, filter, options));
+  }
+
+  public filters(
+    filters: readonly PixelFilter[],
+    options: FilterOptions = {},
+  ): PhantomEditPipeline {
+    return this.nextAsync((image) => applyFilters(image, filters, options));
+  }
+
+  public mask(
+    mask: AlphaMask,
+    options: AlphaMaskRefinementOptions = {},
+  ): PhantomEditPipeline {
+    return this.next((image) => applyMask(image, mask, options));
+  }
+
+  public background(color: RgbColor): PhantomEditPipeline {
+    return this.next((image) => replaceBackground(image, color));
+  }
+
+  public async plan(
+    options: PhantomAssetPlanOptions = {},
+  ): Promise<PhantomAssetPlan> {
+    return planAsset(await this.imagePromise, options);
+  }
+
+  public run(): Promise<RawRgbaImage> {
+    return this.imagePromise;
+  }
+
+  private next(
+    transform: (image: RawRgbaImage) => RawRgbaImage,
+  ): PhantomEditPipeline {
+    return new PhantomEditSession(this.imagePromise.then(transform));
+  }
+
+  private nextAsync(
+    transform: (image: RawRgbaImage) => Promise<RawRgbaImage>,
+  ): PhantomEditPipeline {
+    return new PhantomEditSession(this.imagePromise.then(transform));
+  }
+}
 
 function toProcessOptions(
   options: FilterOptions,

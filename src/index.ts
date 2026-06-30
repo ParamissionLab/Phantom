@@ -64,13 +64,16 @@ export {
   applyMask,
   convertImage,
   cropImage,
+  editImage,
   makeImage,
   optimizeImage,
   phantom,
   planAsset,
+  processImage,
   replaceBackground,
   resizeImage,
   type FilterOptions,
+  type PhantomEditPipeline,
 } from "./core/phantom.js";
 export { phantom as default } from "./core/phantom.js";
 export {

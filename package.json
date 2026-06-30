@@ -31,6 +31,14 @@
       "types": "./dist/workers/index.d.ts",
       "import": "./dist/workers/index.js"
     },
+    "./worker": {
+      "types": "./dist/workers/tile-worker.d.ts",
+      "import": "./dist/workers/tile-worker.js"
+    },
+    "./workers/tile-worker": {
+      "types": "./dist/workers/tile-worker.d.ts",
+      "import": "./dist/workers/tile-worker.js"
+    },
     "./wasm": {
       "types": "./dist/wasm/index.d.ts",
       "import": "./dist/wasm/index.js"

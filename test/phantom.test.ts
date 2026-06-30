@@ -4,9 +4,11 @@ import phantomDefault, {
   applyFilters,
   applyMask,
   cropImage,
+  editImage,
   makeImage,
   planAsset,
   phantom,
+  processImage,
   replaceBackground,
   resizeImage,
   type RawRgbaImage,
@@ -47,6 +49,32 @@ describe("default phantom API", () => {
     const output = await phantomDefault.applyFilter(image, "invert");
 
     expect(Array.from(output.data)).toEqual([245, 235, 225, 255]);
+  });
+
+  it("supports a beginner-friendly edit pipeline from the default facade", async () => {
+    const output = await phantom
+      .edit(sampleImage())
+      .crop({ x: 0, y: 0, width: 1, height: 1 })
+      .resize(2, 1, { method: "nearest" })
+      .filter("invert", { tileSize: 1 })
+      .background({ r: 255, g: 255, b: 255 })
+      .run();
+
+    expect(output.width).toBe(2);
+    expect(output.height).toBe(1);
+    expect(Array.from(output.data)).toEqual([
+      245, 235, 225, 255, 245, 235, 225, 255,
+    ]);
+  });
+
+  it("supports named editImage and processImage aliases", async () => {
+    const edited = await editImage(sampleImage())
+      .filters(["grayscale", "invert"], { tileSize: 1 })
+      .run();
+    const plan = await processImage(sampleImage()).plan();
+
+    expect(edited.width).toBe(2);
+    expect(plan.filters).toContain("smoothEnhance");
   });
 
   it("applies a filter without requiring overlap knowledge", async () => {
@@ -97,8 +125,6 @@ describe("default phantom API", () => {
     expect(masked.data[3]).toBeGreaterThan(0);
     expect(flattened.data[3]).toBe(255);
     expect(plan.encode.format).toBe("jpeg");
-    expect(phantom.planAsset(sampleImage()).filters).toContain(
-      "smoothEnhance",
-    );
+    expect(phantom.planAsset(sampleImage()).filters).toContain("smoothEnhance");
   });
 });

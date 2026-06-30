@@ -17,6 +17,12 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   for Phantom-specific format, filter, tile, and memory recommendations.
 - Added `boxBlur3x3` and `unsharpMask` filters across CPU, worker, WebGPU, and
   Zig WASM routing.
+- Added the short `@paramission-lab/phantom/worker` package export and retained
+  `@paramission-lab/phantom/workers/tile-worker` as the long-form alias so
+  browser bundlers can resolve the worker module used by `TileWorkerPool`.
+- Added `phantom.edit()`, `phantom.process()`, `editImage()`, and
+  `processImage()` as beginner-friendly pipeline APIs for chaining common image
+  operations from one import.
 
 ### Changed
 
@@ -28,10 +34,18 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Renamed the Zig source entry point to `zig/src/phantom-kernel.zig`.
 - Excluded Zig source files from the npm package `files` list so installs do not
   include the development `zig/` tree in `node_modules`.
+- Updated installation examples, worker usage guidance, and package entry-point
+  documentation to match the current public API.
+- Added README guidance for choosing between Phantom's high-level pipeline and
+  lower-level APIs.
 
 ### Fixed
 
 - Updated demo and documentation to remove the old fuzzy fallback path.
+- Isolated `TileWorkerPool` worker failures so one failed worker rejects only
+  its assigned tile instead of rejecting unrelated in-flight tasks.
+- Avoided direct `navigator` global access when selecting the default worker
+  concurrency.
 
 ## [1.0.0] - 2026-06-29
 
