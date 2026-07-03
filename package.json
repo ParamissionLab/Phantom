@@ -1,6 +1,6 @@
 {
   "name": "@paramission-lab/phantom",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Tile-first extreme resolution RGBA image processing for browser, workers, WebGPU, and Zig WASM.",
   "author": {
     "name": "Paramission Lab",
@@ -67,7 +67,9 @@
     "build": "tsc -p tsconfig.build.json",
     "prepare": "npm run build",
     "prepublishOnly": "npm run ci && npm run demo:build",
-    "build:wasm": "zig build-exe zig/src/phantom-kernel.zig -target wasm32-freestanding -fno-entry -rdynamic -O ReleaseFast -femit-bin=dist/phantom_kernel.wasm",
+    "pretest": "npm run build:wasm",
+    "build:wasm": "zig build --release=fast --prefix dist",
+    "test:zig": "zig build test",
     "release:patch": "npm version patch",
     "release:minor": "npm version minor",
     "release:major": "npm version major",
@@ -78,7 +80,7 @@
     "test": "vitest run",
     "lint": "eslint .",
     "format": "prettier --write \"**/*.{ts,js,json,md,yml,yaml}\"",
-    "ci": "npm run typecheck && npm run lint && npm test && npm run build && npm run build:wasm"
+    "ci": "npm run typecheck && npm run lint && npm run test:zig && npm test && npm run build"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

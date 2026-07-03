@@ -49,6 +49,8 @@ export interface ProcessProgress {
 export interface ProcessStats {
   readonly totalTiles: number;
   readonly processedTiles: number;
+  readonly backendTiles: number;
+  readonly fallbackTiles: number;
   readonly outputBytes: number;
   readonly elapsedMs: number;
 }
@@ -64,10 +66,30 @@ export interface ProcessPipelineStep {
   readonly overlap?: number;
 }
 
+/** Executes one overlap-expanded RGBA tile and returns its core pixels. */
+export interface TileKernelBackend {
+  readonly id?: string;
+  supportsFilter?(filter: PixelFilter): boolean;
+  processTile(
+    input: Uint8Array,
+    inputWidth: number,
+    inputHeight: number,
+    outputOffsetX: number,
+    outputOffsetY: number,
+    outputWidth: number,
+    outputHeight: number,
+    filter: PixelFilter,
+  ): Uint8Array;
+}
+
+export type BackendFailureMode = "strict" | "fallback";
+
 export interface ProcessOptions {
   readonly tileSize?: number;
   readonly overlap?: number;
   readonly filter?: PixelFilter;
+  readonly backend?: TileKernelBackend;
+  readonly backendFailureMode?: BackendFailureMode;
   readonly signal?: AbortSignal;
   readonly onTile?: (tile: TileDescriptor) => void;
   readonly onProgress?: (progress: ProcessProgress) => void;

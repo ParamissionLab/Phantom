@@ -6,6 +6,10 @@ const FILTER_SHARPEN3X3: u32 = 3;
 const FILTER_SMOOTH_ENHANCE: u32 = 4;
 const FILTER_BOX_BLUR3X3: u32 = 5;
 const FILTER_UNSHARP_MASK: u32 = 6;
+const LUMA_R: u32 = 77;
+const LUMA_G: u32 = 150;
+const LUMA_B: u32 = 29;
+const FIXED_SHIFT: u4 = 8;
 
 export fn rgba_invert(input_ptr: [*]const u8, output_ptr: [*]u8, pixels: u32) void {
     invertPacked(input_ptr, output_ptr, @intCast(pixels));
@@ -90,24 +94,29 @@ fn copyTile(input_ptr: [*]const u8, output_ptr: [*]u8, input_width: usize, offse
 }
 
 fn invertPacked(input_ptr: [*]const u8, output_ptr: [*]u8, pixels: usize) void {
-    const input_words: [*]const u32 = @ptrCast(@alignCast(input_ptr));
-    const output_words: [*]u32 = @ptrCast(@alignCast(output_ptr));
     var index: usize = 0;
 
     while (index + 8 <= pixels) : (index += 8) {
-        output_words[index] = input_words[index] ^ 0x00ff_ffff;
-        output_words[index + 1] = input_words[index + 1] ^ 0x00ff_ffff;
-        output_words[index + 2] = input_words[index + 2] ^ 0x00ff_ffff;
-        output_words[index + 3] = input_words[index + 3] ^ 0x00ff_ffff;
-        output_words[index + 4] = input_words[index + 4] ^ 0x00ff_ffff;
-        output_words[index + 5] = input_words[index + 5] ^ 0x00ff_ffff;
-        output_words[index + 6] = input_words[index + 6] ^ 0x00ff_ffff;
-        output_words[index + 7] = input_words[index + 7] ^ 0x00ff_ffff;
+        invertPixel(input_ptr + index * CHANNELS, output_ptr + index * CHANNELS);
+        invertPixel(input_ptr + (index + 1) * CHANNELS, output_ptr + (index + 1) * CHANNELS);
+        invertPixel(input_ptr + (index + 2) * CHANNELS, output_ptr + (index + 2) * CHANNELS);
+        invertPixel(input_ptr + (index + 3) * CHANNELS, output_ptr + (index + 3) * CHANNELS);
+        invertPixel(input_ptr + (index + 4) * CHANNELS, output_ptr + (index + 4) * CHANNELS);
+        invertPixel(input_ptr + (index + 5) * CHANNELS, output_ptr + (index + 5) * CHANNELS);
+        invertPixel(input_ptr + (index + 6) * CHANNELS, output_ptr + (index + 6) * CHANNELS);
+        invertPixel(input_ptr + (index + 7) * CHANNELS, output_ptr + (index + 7) * CHANNELS);
     }
 
     while (index < pixels) : (index += 1) {
-        output_words[index] = input_words[index] ^ 0x00ff_ffff;
+        invertPixel(input_ptr + index * CHANNELS, output_ptr + index * CHANNELS);
     }
+}
+
+inline fn invertPixel(source: [*]const u8, dest: [*]u8) void {
+    dest[0] = 255 - source[0];
+    dest[1] = 255 - source[1];
+    dest[2] = 255 - source[2];
+    dest[3] = source[3];
 }
 
 fn invertTile(input_ptr: [*]const u8, output_ptr: [*]u8, input_width: usize, offset_x: usize, offset_y: usize, width: usize, height: usize) void {
@@ -149,7 +158,7 @@ inline fn grayscalePixel(source: [*]const u8, dest: [*]u8) void {
     const red: u32 = source[0];
     const green: u32 = source[1];
     const blue: u32 = source[2];
-    const luma: u8 = @intCast((red * 77 + green * 150 + blue * 29) >> 8);
+    const luma: u8 = @intCast((red * LUMA_R + green * LUMA_G + blue * LUMA_B) >> FIXED_SHIFT);
     dest[0] = luma;
     dest[1] = luma;
     dest[2] = luma;
@@ -276,20 +285,23 @@ inline fn gaussianBlurChannel(input_ptr: [*]const u8, indexes: Sample3x3, channe
     const bottom: i32 = input_ptr[indexes.bottom + channel];
     const left: i32 = input_ptr[indexes.left + channel];
     const right: i32 = input_ptr[indexes.right + channel];
-    const corners: i32 = input_ptr[indexes.top_left + channel] + input_ptr[indexes.top_right + channel] + input_ptr[indexes.bottom_left + channel] + input_ptr[indexes.bottom_right + channel];
+    const corners: i32 = @as(i32, input_ptr[indexes.top_left + channel]) +
+        @as(i32, input_ptr[indexes.top_right + channel]) +
+        @as(i32, input_ptr[indexes.bottom_left + channel]) +
+        @as(i32, input_ptr[indexes.bottom_right + channel]);
     return @divTrunc(corners + (top + bottom + left + right) * 2 + center * 4, 16);
 }
 
 inline fn boxBlurChannel(input_ptr: [*]const u8, indexes: Sample3x3, channel: usize) u8 {
-    const total: u32 = input_ptr[indexes.top_left + channel] +
-        input_ptr[indexes.top + channel] +
-        input_ptr[indexes.top_right + channel] +
-        input_ptr[indexes.left + channel] +
-        input_ptr[indexes.center + channel] +
-        input_ptr[indexes.right + channel] +
-        input_ptr[indexes.bottom_left + channel] +
-        input_ptr[indexes.bottom + channel] +
-        input_ptr[indexes.bottom_right + channel];
+    const total: u32 = @as(u32, input_ptr[indexes.top_left + channel]) +
+        @as(u32, input_ptr[indexes.top + channel]) +
+        @as(u32, input_ptr[indexes.top_right + channel]) +
+        @as(u32, input_ptr[indexes.left + channel]) +
+        @as(u32, input_ptr[indexes.center + channel]) +
+        @as(u32, input_ptr[indexes.right + channel]) +
+        @as(u32, input_ptr[indexes.bottom_left + channel]) +
+        @as(u32, input_ptr[indexes.bottom + channel]) +
+        @as(u32, input_ptr[indexes.bottom_right + channel]);
     return @intCast((total + 4) / 9);
 }
 
@@ -301,4 +313,54 @@ fn clampU8(value: i32) u8 {
     if (value <= 0) return 0;
     if (value >= 255) return 255;
     return @intCast(value);
+}
+
+const testing = @import("std").testing;
+
+test "whole-image kernels preserve alpha and match fixed-point output" {
+    const input = [_]u8{ 10, 20, 30, 77, 200, 100, 50, 128 };
+    var inverted: [input.len]u8 align(4) = undefined;
+    var grayscale: [input.len]u8 = undefined;
+
+    rgba_invert(&input, &inverted, 2);
+    rgba_grayscale(&input, &grayscale, 2);
+
+    try testing.expectEqualSlices(u8, &.{ 245, 235, 225, 77, 55, 155, 205, 128 }, &inverted);
+    try testing.expectEqualSlices(u8, &.{ 18, 18, 18, 77, 124, 124, 124, 128 }, &grayscale);
+}
+
+test "tile filter extracts and sharpens the requested core" {
+    const pixel = [_]u8{ 10, 10, 10, 255 };
+    var input: [9 * CHANNELS]u8 = undefined;
+    for (0..9) |index| {
+        @memcpy(input[index * CHANNELS ..][0..CHANNELS], &pixel);
+    }
+    input[4 * CHANNELS] = 100;
+    input[4 * CHANNELS + 1] = 100;
+    input[4 * CHANNELS + 2] = 100;
+    var output: [CHANNELS]u8 = undefined;
+
+    rgba_filter_tile(&input, &output, 3, 3, 1, 1, 1, 1, FILTER_SHARPEN3X3);
+
+    try testing.expectEqualSlices(u8, &.{ 255, 255, 255, 255 }, &output);
+}
+
+test "enhancement kernels accumulate bright neighbors without u8 overflow" {
+    const pixel = [_]u8{ 255, 255, 255, 255 };
+    var input: [9 * CHANNELS]u8 = undefined;
+    for (0..9) |index| {
+        @memcpy(input[index * CHANNELS ..][0..CHANNELS], &pixel);
+    }
+    var blurred: [CHANNELS]u8 = undefined;
+    var enhanced: [CHANNELS]u8 = undefined;
+
+    rgba_filter_tile(&input, &blurred, 3, 3, 1, 1, 1, 1, FILTER_BOX_BLUR3X3);
+    rgba_filter_tile(&input, &enhanced, 3, 3, 1, 1, 1, 1, FILTER_SMOOTH_ENHANCE);
+
+    try testing.expectEqualSlices(u8, &pixel, &blurred);
+    try testing.expectEqualSlices(u8, &pixel, &enhanced);
+}
+
+test "tile scratch estimate includes expanded input and core output" {
+    try testing.expectEqual(@as(u64, 33_808), rgba_estimate_tile_bytes(64, 64, 1));
 }

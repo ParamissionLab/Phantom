@@ -93,7 +93,7 @@ installs; build it explicitly when you need that backend.
 | Shared tile memory    | Requires `SharedArrayBuffer`; cross-origin isolation is required in browsers    |
 | WebGPU                | Requires a browser/runtime with `navigator.gpu`                                 |
 | AI background removal | Requires browser image APIs and `@huggingface/transformers` optional dependency |
-| Zig WASM build        | Requires Zig `0.15.2`                                                           |
+| Zig WASM build        | Requires Zig `0.16.0`                                                           |
 
 The core import does not initialize WebGPU, workers, WASM, or AI inference.
 
@@ -324,11 +324,13 @@ const many = await applyFilters(input, ["smoothEnhance", "unsharpMask"]);
 
 Options:
 
-| Option       | Description                                                              |
-| ------------ | ------------------------------------------------------------------------ |
-| `tileSize`   | Tile edge length in pixels                                               |
-| `signal`     | Abort signal checked between tiles                                       |
-| `onProgress` | Receives completed tile count, total tiles, percent, and tile descriptor |
+| Option               | Description                                                                    |
+| -------------------- | ------------------------------------------------------------------------------ |
+| `tileSize`           | Tile edge length in pixels                                                     |
+| `backend`            | Optional tile backend such as the Zig WASM backend                             |
+| `backendFailureMode` | `strict` throws backend errors; `fallback` reroutes failed tiles to TypeScript |
+| `signal`             | Abort signal checked between tiles                                             |
+| `onProgress`         | Receives completed tile count, total tiles, percent, and tile descriptor       |
 
 ### Low-Level Processing
 
@@ -352,6 +354,8 @@ const { image, stats } = await processRawImageWithStats(input, {
   },
 });
 
+console.log(stats.backendTiles, stats.fallbackTiles);
+
 const recipe = await processRawImagePipeline(
   input,
   [{ filter: "smoothEnhance" }, { filter: "unsharpMask" }],
@@ -360,7 +364,10 @@ const recipe = await processRawImagePipeline(
 ```
 
 `processRawImagePipeline()` requires at least one step. If you configure an
-overlap smaller than a filter requires, Phantom throws `PhantomError`.
+overlap smaller than a filter requires, Phantom throws `PhantomError`. When a
+custom backend is supplied, `stats.backendTiles` and `stats.fallbackTiles` show
+how many tiles used the backend or rerouted through the TypeScript reference
+kernel.
 
 ### Custom Sources and Sinks
 
@@ -674,9 +681,10 @@ npm run build
 npm run build:wasm
 ```
 
-Instantiate the backend:
+Instantiate the backend and route the normal high-level pipeline through Zig:
 
 ```ts
+import { applyFilter, editImage } from "@paramission-lab/phantom";
 import { instantiateZigBackend } from "@paramission-lab/phantom/wasm";
 
 const bytes = await fetch("/phantom_kernel.wasm").then((response) =>
@@ -684,12 +692,25 @@ const bytes = await fetch("/phantom_kernel.wasm").then((response) =>
 );
 
 const backend = await instantiateZigBackend(bytes);
-const output = backend.process(input, "grayscale");
+const output = await applyFilter(input, "grayscale", { backend });
+const enhanced = await editImage(input)
+  .filter("smoothEnhance", { backend })
+  .filter("unsharpMask", { backend })
+  .run();
+
+console.log(backend.id, backend.supportsFilter("unsharpMask"));
+console.log(backend.estimateTileBytes(512, 512, 1));
 ```
 
-The Zig backend supports whole-image processing, tile processing, and alpha-mask
-application through the `WasmKernelBackend` interface. The release package ships
-`dist`; the `zig/` source tree is for repository development.
+Passing `backend` to `applyFilter()`, `applyFilters()`, `editImage().filter()`,
+or `processRawImage()` keeps the normal bounded-memory tile planner and runs each
+kernel in Zig. Direct whole-image, tile, alpha-mask, filter capability, and tile
+scratch-estimate methods remain available through `WasmKernelBackend`. The
+TypeScript kernels are the default path when no backend is supplied. Set
+`backendFailureMode: "fallback"` when you want failed or unsupported backend
+tiles to reroute through the TypeScript reference kernel; the default `strict`
+mode surfaces backend failures immediately. The release package ships `dist`;
+the `zig/` source tree and root `build.zig` are for repository development.
 
 ## Error Handling
 
@@ -727,9 +748,9 @@ Common validation failures:
 | Decoder or caller      | Provides source pixels from browser, Node.js, or a custom decoder |
 | `TileSource`           | Reads bounded rectangular RGBA regions                            |
 | Tile planner           | Splits the image into overlap-safe tile descriptors               |
-| CPU kernels            | Provide deterministic filter behavior                             |
+| CPU kernels            | Provide the deterministic fallback and parity reference           |
 | Worker pool            | Runs transferable tile jobs off the browser main thread           |
-| Zig WASM backend       | Runs compiled kernels from `phantom_kernel.wasm`                  |
+| Zig WASM backend       | Executes the main tiled filter pipeline when selected             |
 | WebGPU compute backend | Accelerates compatible processing in WebGPU runtimes              |
 | AI mask provider       | Creates semantic alpha masks in browser apps                      |
 | `TileSink`             | Writes processed tile output to storage or an encoder             |
@@ -745,7 +766,7 @@ Requirements:
 
 - Node.js 22 or later
 - npm 10 or later
-- Zig 0.15.2 for `npm run build:wasm` and `npm run ci`
+- Zig 0.16.0 for `npm test`, `npm run build:wasm`, and `npm run ci`
 
 Install dependencies:
 
@@ -757,14 +778,15 @@ Useful scripts:
 
 | Command                 | Purpose                                                            |
 | ----------------------- | ------------------------------------------------------------------ |
-| `npm test`              | Run Vitest tests                                                   |
+| `npm test`              | Build Zig WASM and run Vitest, including WASM parity tests         |
+| `npm run test:zig`      | Run native Zig kernel unit tests                                   |
 | `npm run typecheck`     | Run TypeScript strict checks                                       |
 | `npm run lint`          | Run ESLint                                                         |
 | `npm run build`         | Emit TypeScript build artifacts to `dist/`                         |
 | `npm run build:wasm`    | Compile `zig/src/phantom-kernel.zig` to `dist/phantom_kernel.wasm` |
 | `npm run demo:build`    | Build the demo app to `demo-dist/`                                 |
 | `npm run dev`           | Run the demo app locally                                           |
-| `npm run ci`            | Run typecheck, lint, tests, TypeScript build, and Zig WASM build   |
+| `npm run ci`            | Run typecheck, lint, native Zig/WASM tests, and TypeScript build   |
 | `npm run release:patch` | Bump package patch version                                         |
 | `npm run release:minor` | Bump package minor version                                         |
 | `npm run release:major` | Bump package major version                                         |

@@ -8,6 +8,16 @@ import {
 import type { WasmKernelBackend, WasmKernelExports } from "./types.js";
 
 const PAGE_SIZE_BYTES = 64 * 1024;
+const WASM_U32_MAX = 0xffff_ffff;
+const SUPPORTED_FILTERS: ReadonlySet<PixelFilter> = new Set([
+  "identity",
+  "invert",
+  "grayscale",
+  "smoothEnhance",
+  "sharpen3x3",
+  "boxBlur3x3",
+  "unsharpMask",
+]);
 
 /**
  * Instantiates the optional Zig WASM backend.
@@ -28,10 +38,30 @@ export async function instantiateZigBackend(
 }
 
 class ZigWasmBackend implements WasmKernelBackend {
+  public readonly id = "zig-wasm";
   public readonly memory: WebAssembly.Memory;
 
   public constructor(private readonly exports: WasmKernelExports) {
     this.memory = exports.memory;
+  }
+
+  public supportsFilter(filter: PixelFilter): boolean {
+    return SUPPORTED_FILTERS.has(filter);
+  }
+
+  public estimateTileBytes(
+    tileWidth: number,
+    tileHeight: number,
+    overlap: number,
+  ): bigint {
+    assertWasmU32(tileWidth, "tileWidth", false);
+    assertWasmU32(tileHeight, "tileHeight", false);
+    assertWasmU32(overlap, "overlap", true);
+    return this.exports.rgba_estimate_tile_bytes(
+      tileWidth,
+      tileHeight,
+      overlap,
+    );
   }
 
   public process(
@@ -122,12 +152,24 @@ class ZigWasmBackend implements WasmKernelBackend {
     outputHeight: number,
     filter: PixelFilter,
   ): Uint8Array {
-    assertPositiveInteger(inputWidth, "inputWidth");
-    assertPositiveInteger(inputHeight, "inputHeight");
-    assertPositiveInteger(outputWidth, "outputWidth");
-    assertPositiveInteger(outputHeight, "outputHeight");
+    assertWasmU32(inputWidth, "inputWidth", false);
+    assertWasmU32(inputHeight, "inputHeight", false);
+    assertWasmU32(outputWidth, "outputWidth", false);
+    assertWasmU32(outputHeight, "outputHeight", false);
+    assertWasmU32(outputOffsetX, "outputOffsetX", true);
+    assertWasmU32(outputOffsetY, "outputOffsetY", true);
+
+    if (
+      outputOffsetX + outputWidth > inputWidth ||
+      outputOffsetY + outputHeight > inputHeight
+    ) {
+      throw new PhantomError("Output tile window is outside the input tile.");
+    }
 
     const expectedInput = inputWidth * inputHeight * 4;
+    if (!Number.isSafeInteger(expectedInput)) {
+      throw new PhantomError("Input tile dimensions exceed safe WASM memory.");
+    }
     if (input.length !== expectedInput) {
       throw new PhantomError(
         `Tile input length mismatch: expected ${expectedInput}, got ${input.length}.`,
@@ -135,6 +177,9 @@ class ZigWasmBackend implements WasmKernelBackend {
     }
 
     const outputBytes = outputWidth * outputHeight * 4;
+    if (!Number.isSafeInteger(outputBytes)) {
+      throw new PhantomError("Output tile dimensions exceed safe WASM memory.");
+    }
     const inputPtr = 0;
     const outputPtr = input.length;
     this.ensureCapacity(input.length + outputBytes);
@@ -189,6 +234,13 @@ class ZigWasmBackend implements WasmKernelBackend {
     const missingBytes = requiredBytes - this.memory.buffer.byteLength;
     const pages = Math.ceil(missingBytes / PAGE_SIZE_BYTES);
     this.memory.grow(pages);
+  }
+}
+
+function assertWasmU32(value: number, name: string, allowZero: boolean): void {
+  assertPositiveInteger(value + (allowZero ? 1 : 0), name);
+  if (!Number.isSafeInteger(value) || value > WASM_U32_MAX) {
+    throw new PhantomError(`${name} must fit in a WebAssembly u32.`);
   }
 }
 
