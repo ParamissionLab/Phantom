@@ -30,18 +30,14 @@ import {
 import { processRawImage, processRawImagePipeline } from "./pipeline.js";
 import {
   type PixelFilter,
-  type BackendFailureMode,
   type ProcessOptions,
   type ProcessProgress,
   type RawRgbaImage,
   type Rect,
-  type TileKernelBackend,
 } from "./types.js";
 
 export interface FilterOptions {
   readonly tileSize?: number;
-  readonly backend?: TileKernelBackend;
-  readonly backendFailureMode?: BackendFailureMode;
   readonly signal?: AbortSignal;
   readonly onProgress?: (progress: ProcessProgress) => void;
 }
@@ -278,10 +274,6 @@ function toProcessOptions(
 ): Omit<ProcessOptions, "filter" | "overlap"> {
   return {
     ...(options.tileSize === undefined ? {} : { tileSize: options.tileSize }),
-    ...(options.backend === undefined ? {} : { backend: options.backend }),
-    ...(options.backendFailureMode === undefined
-      ? {}
-      : { backendFailureMode: options.backendFailureMode }),
     ...(options.signal === undefined ? {} : { signal: options.signal }),
     ...(options.onProgress === undefined
       ? {}

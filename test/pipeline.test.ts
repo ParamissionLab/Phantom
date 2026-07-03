@@ -5,7 +5,6 @@ import {
   processRawImagePipeline,
   processRawImageWithStats,
   type RawRgbaImage,
-  type TileKernelBackend,
 } from "../src/index.js";
 
 function makeImage(): RawRgbaImage {
@@ -72,8 +71,6 @@ describe("processRawImage", () => {
     expect(result.image.data).toEqual(makeImage().data);
     expect(result.stats.totalTiles).toBe(2);
     expect(result.stats.processedTiles).toBe(2);
-    expect(result.stats.backendTiles).toBe(0);
-    expect(result.stats.fallbackTiles).toBe(0);
     expect(result.stats.outputBytes).toBe(makeImage().data.length);
     expect(result.stats.elapsedMs).toBeGreaterThanOrEqual(0);
     expect(progress).toEqual([
@@ -89,10 +86,7 @@ describe("processRawImage", () => {
         height: 1,
         data: Uint8Array.from([10, 20, 30, 255]),
       },
-      [
-        { filter: "grayscale", overlap: 0 },
-        { filter: "invert", overlap: 0 },
-      ],
+      [{ filter: "grayscale", overlap: 0 }, { filter: "invert", overlap: 0 }],
       { tileSize: 1 },
     );
 
@@ -115,51 +109,5 @@ describe("processRawImage", () => {
         filter: "missing" as never,
       }),
     ).rejects.toBeInstanceOf(PhantomError);
-  });
-
-  it("falls back to the TypeScript kernel when a backend lacks support", async () => {
-    const backend: TileKernelBackend = {
-      id: "partial-test-backend",
-      supportsFilter: (filter) => filter === "identity",
-      processTile: () => {
-        throw new Error("should not be called");
-      },
-    };
-
-    const result = await processRawImageWithStats(makeImage(), {
-      tileSize: 2,
-      overlap: 0,
-      filter: "invert",
-      backend,
-      backendFailureMode: "fallback",
-    });
-
-    expect(result.image.data).toEqual(
-      (
-        await processRawImage(makeImage(), {
-          tileSize: 2,
-          overlap: 0,
-          filter: "invert",
-        })
-      ).data,
-    );
-    expect(result.stats.backendTiles).toBe(0);
-    expect(result.stats.fallbackTiles).toBe(2);
-  });
-
-  it("throws in strict mode when a backend returns malformed tile data", async () => {
-    const backend: TileKernelBackend = {
-      id: "bad-test-backend",
-      processTile: () => new Uint8Array(1),
-    };
-
-    await expect(
-      processRawImage(makeImage(), {
-        tileSize: 2,
-        overlap: 0,
-        filter: "identity",
-        backend,
-      }),
-    ).rejects.toThrow(/returned 1 bytes/i);
   });
 });

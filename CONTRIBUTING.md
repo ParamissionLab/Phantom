@@ -8,7 +8,7 @@ Requirements:
 
 - Node.js 22 or later
 - npm 10 or later
-- Zig 0.16.0 for the WebAssembly build and native kernel tests
+- Zig 0.15.2 for the WebAssembly build
 
 ```bash
 npm ci
@@ -37,8 +37,7 @@ npm run dev
 | `src/gpu/`     | Browser capability detection and WebGPU/WebGL adapters                 |
 | `src/workers/` | Browser worker pool and shared tile-buffer utilities                   |
 | `src/wasm/`    | Zig WASM TypeScript adapter                                            |
-| `build.zig`    | Zig 0.16 build graph for WASM output and native tests                  |
-| `zig/`         | Zig kernel source used by `npm run build:wasm` and `npm run test:zig`  |
+| `zig/`         | Zig kernel source used by `npm run build:wasm`                         |
 | `test/`        | Vitest coverage for public behavior and edge cases                     |
 | `demo/`        | Browser demo app; keep demo-only UI code here                          |
 
@@ -67,7 +66,6 @@ Do not commit generated `dist/`, `demo-dist/`, model weights, caches, or local e
 
 - Process extreme-resolution data in bounded tiles; do not allocate a full 32K/64K RGBA frame in a kernel.
 - Keep the TypeScript CPU implementation as the correctness reference for accelerated backends.
-- Run parity coverage for every filter added to the Zig WASM backend.
 - Keep browser worker entry points package-exported when they are required at runtime by `TileWorkerPool`.
 - Dispose AI pipelines and GPU resources explicitly.
 - Document the license of every model or asset introduced by a contribution.

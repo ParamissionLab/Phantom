@@ -131,7 +131,6 @@ export {
 export {
   PhantomError,
   RGBA_CHANNELS,
-  type BackendFailureMode,
   type ImageDimensions,
   type PixelFilter,
   type ProcessPipelineStep,
@@ -143,7 +142,6 @@ export {
   type Rect,
   type StreamBufferOptions,
   type TileDescriptor,
-  type TileKernelBackend,
   type TilePayload,
   type TileResult,
   type TileSink,

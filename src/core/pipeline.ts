@@ -10,13 +10,8 @@ import {
   type RawRgbaProcessResult,
   type RawRgbaImage,
   type Rect,
-  type PixelFilter,
-  type TileDescriptor,
   type TileSink,
   type TileSource,
-  type TileKernelBackend,
-  type TileResult,
-  type BackendFailureMode,
   assertRgbaLength,
 } from "./types.js";
 
@@ -105,8 +100,7 @@ export async function processTileSourceWithStats(
   sink: TileSink,
   options: ProcessOptions = {},
 ): Promise<ProcessStats> {
-  const { tileSize, overlap, filter, backendFailureMode } =
-    resolveProcessOptions(options);
+  const { tileSize, overlap, filter } = resolveProcessOptions(options);
   const tiles = planTiles({
     width: dimensions.width,
     height: dimensions.height,
@@ -115,27 +109,14 @@ export async function processTileSourceWithStats(
   });
   const startedAtMs = nowMs();
   let processedTiles = 0;
-  let backendTiles = 0;
-  let fallbackTiles = 0;
   let outputBytes = 0;
 
   for (const descriptor of tiles) {
     options.signal?.throwIfAborted();
     const rgba = await source.read(descriptor.input);
-    const result = applyFilterWithBackend(
-      descriptor,
-      rgba,
-      filter,
-      options.backend,
-      backendFailureMode,
-    );
+    const result = applyFilterToTile({ descriptor, rgba }, filter);
     await sink.write(result.descriptor.output, result.rgba);
     processedTiles += 1;
-    if (result.backendUsed) {
-      backendTiles += 1;
-    } else if (options.backend !== undefined) {
-      fallbackTiles += 1;
-    }
     outputBytes += result.rgba.length;
     options.onTile?.(descriptor);
     options.onProgress?.({
@@ -149,77 +130,9 @@ export async function processTileSourceWithStats(
   return {
     totalTiles: tiles.length,
     processedTiles,
-    backendTiles,
-    fallbackTiles,
     outputBytes,
     elapsedMs: nowMs() - startedAtMs,
   };
-}
-
-interface AppliedTileResult extends TileResult {
-  readonly backendUsed: boolean;
-}
-
-function applyFilterWithBackend(
-  descriptor: TileDescriptor,
-  rgba: Uint8Array,
-  filter: PixelFilter,
-  backend: TileKernelBackend | undefined,
-  backendFailureMode: BackendFailureMode,
-): AppliedTileResult {
-  if (backend === undefined) {
-    return {
-      ...applyFilterToTile({ descriptor, rgba }, filter),
-      backendUsed: false,
-    };
-  }
-
-  if (backend.supportsFilter?.(filter) === false) {
-    if (backendFailureMode === "fallback") {
-      return {
-        ...applyFilterToTile({ descriptor, rgba }, filter),
-        backendUsed: false,
-      };
-    }
-    throw new PhantomError(
-      `Backend ${backend.id ?? "tile-kernel"} does not support filter: ${filter}.`,
-    );
-  }
-
-  const outputOffsetX = descriptor.output.x - descriptor.input.x;
-  const outputOffsetY = descriptor.output.y - descriptor.input.y;
-  try {
-    const output = backend.processTile(
-      rgba,
-      descriptor.input.width,
-      descriptor.input.height,
-      outputOffsetX,
-      outputOffsetY,
-      descriptor.output.width,
-      descriptor.output.height,
-      filter,
-    );
-    const expectedOutputBytes = rectByteLength(descriptor.output);
-    if (output.length !== expectedOutputBytes) {
-      throw new PhantomError(
-        `Backend ${backend.id ?? "tile-kernel"} returned ${output.length} bytes for tile ${descriptor.index}; expected ${expectedOutputBytes}.`,
-      );
-    }
-    return { descriptor, rgba: output, backendUsed: true };
-  } catch (error) {
-    if (backendFailureMode === "fallback") {
-      return {
-        ...applyFilterToTile({ descriptor, rgba }, filter),
-        backendUsed: false,
-      };
-    }
-    if (error instanceof PhantomError) {
-      throw error;
-    }
-    throw new PhantomError(
-      `Backend ${backend.id ?? "tile-kernel"} failed on tile ${descriptor.index}: ${formatUnknownError(error)}.`,
-    );
-  }
 }
 
 export function createRawTileSource(image: RawRgbaImage): TileSource {
@@ -279,10 +192,8 @@ function assertRectWithinImage(rect: Rect, image: RawRgbaImage): void {
   }
 }
 
-function resolveProcessOptions(
-  options: ProcessOptions,
-): Required<
-  Pick<ProcessOptions, "tileSize" | "overlap" | "filter" | "backendFailureMode">
+function resolveProcessOptions(options: ProcessOptions): Required<
+  Pick<ProcessOptions, "tileSize" | "overlap" | "filter">
 > {
   const filter = options.filter ?? "identity";
   getPixelFilterProfile(filter);
@@ -297,12 +208,7 @@ function resolveProcessOptions(
     );
   }
 
-  const backendFailureMode = options.backendFailureMode ?? "strict";
-  if (backendFailureMode !== "strict" && backendFailureMode !== "fallback") {
-    throw new PhantomError("backendFailureMode must be strict or fallback.");
-  }
-
-  return { tileSize, overlap, filter, backendFailureMode };
+  return { tileSize, overlap, filter };
 }
 
 function mergeStepOptions(
@@ -319,11 +225,4 @@ function mergeStepOptions(
 
 function nowMs(): number {
   return globalThis.performance?.now() ?? Date.now();
-}
-
-function formatUnknownError(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return String(error);
 }

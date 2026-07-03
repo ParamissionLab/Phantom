@@ -1,8 +1,4 @@
-import type {
-  PixelFilter,
-  RawRgbaImage,
-  TileKernelBackend,
-} from "../core/types.js";
+import type { PixelFilter, RawRgbaImage } from "../core/types.js";
 
 export interface WasmKernelExports extends WebAssembly.Exports {
   readonly memory: WebAssembly.Memory;
@@ -58,18 +54,21 @@ export interface WasmKernelExports extends WebAssembly.Exports {
   ) => bigint;
 }
 
-export interface WasmKernelBackend extends TileKernelBackend {
+export interface WasmKernelBackend {
   readonly memory: WebAssembly.Memory;
-  readonly id: "zig-wasm";
-  supportsFilter(filter: PixelFilter): boolean;
-  estimateTileBytes(
-    tileWidth: number,
-    tileHeight: number,
-    overlap: number,
-  ): bigint;
   process(
     image: RawRgbaImage,
     filter: Exclude<PixelFilter, "identity">,
   ): RawRgbaImage;
   applyAlphaMask(image: RawRgbaImage, mask: Uint8Array): RawRgbaImage;
+  processTile(
+    input: Uint8Array,
+    inputWidth: number,
+    inputHeight: number,
+    outputOffsetX: number,
+    outputOffsetY: number,
+    outputWidth: number,
+    outputHeight: number,
+    filter: PixelFilter,
+  ): Uint8Array;
 }

@@ -5,34 +5,6 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-## [1.0.2] - 2026-07-03
-
-### Added
-
-- Added a Zig 0.16 build graph and native kernel unit tests.
-- Added the public `TileKernelBackend` contract and backend selection to the
-  main filtering, edit, and low-level tile pipelines.
-- Added backend capability probing, backend/fallback tile stats, and optional
-  TypeScript fallback mode for failed or unsupported native tiles.
-- Added end-to-end Zig WASM parity coverage for every public pixel filter.
-
-### Changed
-
-- Updated CI, publishing, local development, and documentation to Zig 0.16.0.
-- Made Zig WASM a first-class opt-in execution backend while retaining the
-  TypeScript kernels as the zero-setup fallback.
-- Exposed Zig WASM filter support and tile scratch estimates through
-  `WasmKernelBackend`.
-- Updated the demo to show SDK version, backend/fallback tile stats, and lazy
-  load AI background-removal code outside the initial demo chunk.
-
-### Fixed
-
-- Removed an unsafe alignment assumption from the Zig invert kernel.
-- Prevented 8-bit overflow while accumulating 3x3 blur and enhancement samples.
-
 ## [1.0.1] - 2026-06-30
 
 ### Added
@@ -161,8 +133,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Unrolled packed Zig invert and grayscale loops and reused 3x3 neighbor indexes in enhancement kernels.
 - Added native Zig alpha-mask compositing.
 
-[Unreleased]: https://github.com/ParamissionLab/phantom/compare/v1.0.2...HEAD
-[1.0.2]: https://github.com/ParamissionLab/phantom/compare/v1.0.1...v1.0.2
+[Unreleased]: https://github.com/ParamissionLab/phantom/compare/v1.0.1...HEAD
 [1.0.1]: https://github.com/ParamissionLab/phantom/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/ParamissionLab/phantom/compare/v0.1.0...v1.0.0
 [0.1.0]: https://github.com/ParamissionLab/phantom/releases/tag/v0.1.0
