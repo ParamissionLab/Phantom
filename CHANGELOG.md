@@ -25,6 +25,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   TypeScript kernels as the zero-setup fallback.
 - Exposed Zig WASM filter support and tile scratch estimates through
   `WasmKernelBackend`.
+- Updated the demo to show SDK version, backend/fallback tile stats, and lazy
+  load AI background-removal code outside the initial demo chunk.
 
 ### Fixed
 

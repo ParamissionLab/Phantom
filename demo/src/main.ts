@@ -1,25 +1,28 @@
+import { applyAlphaMask, type AlphaMask } from "../../src/core/background.js";
 import {
-  applyAlphaMask,
-  applyFilterToTile,
-  chooseTileSize,
-  describeProcessingPlan,
-  detectCapabilities,
   getPixelFilterOverlap,
   listPixelFilters,
-  planTiles,
+} from "../../src/core/filters.js";
+import { applyFilterToTile } from "../../src/core/kernels.js";
+import {
+  chooseTileSize,
+  describeProcessingPlan,
+} from "../../src/core/performance.js";
+import { processRawImageWithStats } from "../../src/core/pipeline.js";
+import {
   RGBA_CHANNELS,
   type PixelFilter,
-  type AlphaMask,
+  type ProcessStats,
+  type RawRgbaImage,
   type Rect,
-  type TileDescriptor,
-} from "../../src/index.js";
-import {
-  createPhantomAi,
-  resolveAiMaskRefinementOptions,
-  type AiBackend,
-  type AiProgress,
-} from "../../src/ai/index.js";
+  type TileKernelBackend,
+} from "../../src/core/types.js";
+import { detectCapabilities } from "../../src/gpu/index.js";
+import type { AiBackend, AiProgress } from "../../src/ai/index.js";
 import "./styles.css";
+
+type PhantomAiModule = typeof import("../../src/ai/index.js");
+type PhantomAiClient = ReturnType<PhantomAiModule["createPhantomAi"]>;
 
 type ResolutionKey = "16k" | "32k" | "64k";
 type OperationMode = "enhance" | "removeBackground";
@@ -40,7 +43,7 @@ interface DemoState {
 const PREVIEW_WIDTH = 960;
 const PREVIEW_HEIGHT = 600;
 const PREVIEW_TILE_SIZE = 128;
-const FRAME_BUDGET_MS = 6;
+const SDK_VERSION = "1.0.2";
 
 const resolutions: Record<
   ResolutionKey,
@@ -84,13 +87,50 @@ const featureRows = [
   ],
 ];
 
+const previewBackend: TileKernelBackend = {
+  id: "demo-preview-backend",
+  supportsFilter(filter) {
+    return listPixelFilters().some(
+      (profile) => profile.id === filter && profile.wasm,
+    );
+  },
+  processTile(
+    input,
+    inputWidth,
+    inputHeight,
+    outputOffsetX,
+    outputOffsetY,
+    outputWidth,
+    outputHeight,
+    filter,
+  ) {
+    return applyFilterToTile(
+      {
+        descriptor: {
+          index: 0,
+          input: { x: 0, y: 0, width: inputWidth, height: inputHeight },
+          output: {
+            x: outputOffsetX,
+            y: outputOffsetY,
+            width: outputWidth,
+            height: outputHeight,
+          },
+        },
+        rgba: input,
+      },
+      filter,
+    ).rgba;
+  },
+};
+
 let sourceImage: ImageData | undefined;
 let enhancedImage: ImageData | undefined;
 let imageBounds: Rect | undefined;
 let semanticMask: AlphaMask | undefined;
 let semanticBackend: AiBackend | undefined;
 let semanticMaskPromise: Promise<AlphaMask> | undefined;
-const phantomAi = createPhantomAi();
+let aiModulePromise: Promise<PhantomAiModule> | undefined;
+let phantomAi: PhantomAiClient | undefined;
 let aiPreloadPromise: Promise<void> | undefined;
 
 const app = document.querySelector<HTMLDivElement>("#app");
@@ -103,7 +143,7 @@ app.innerHTML = `
     <header class="border-b border-zinc-200 bg-white/90 px-5 py-4 backdrop-blur">
       <div class="mx-auto flex max-w-[1600px] flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <p class="text-xs font-bold uppercase tracking-[0.18em] text-emerald-700">Phantom SDK demo</p>
+          <p class="text-xs font-bold uppercase tracking-[0.18em] text-emerald-700">Phantom SDK demo v${SDK_VERSION}</p>
           <h1 class="mt-1 text-3xl font-semibold tracking-normal text-zinc-950">Image Studio for 32K / 64K files</h1>
           <p class="mt-1 max-w-2xl text-sm leading-6 text-zinc-600">Upload a real image, remove AI subject backgrounds, preview tile-safe enhancement, and inspect every SDK layer from filters to memory planning.</p>
         </div>
@@ -182,11 +222,14 @@ app.innerHTML = `
         </section>
 
         <section class="overflow-hidden rounded-lg border border-zinc-200 bg-white">
+          ${metricRow("SDK version", "sdkVersion", SDK_VERSION)}
           ${metricRow("Loaded file", "fileInfo", "No image")}
           ${metricRow("Full-frame editor", "naiveMemory")}
           ${metricRow("Phantom scratch", "phantomMemory")}
           ${metricRow("Tiles", "tiles")}
           ${metricRow("Reduction", "reduction")}
+          ${metricRow("Kernel backend", "kernelBackend", previewBackend.id)}
+          ${metricRow("Fallback tiles", "fallbackTiles", "0")}
           ${metricRow("Mask engine", "maskEngine", "-")}
           ${metricRow("Model state", "modelState", "Not loaded")}
           ${metricRow("Removed pixels", "removedPixels", "-")}
@@ -269,12 +312,19 @@ app.innerHTML = `
           <h2 class="text-lg font-semibold">Use the SDK</h2>
   <pre class="mt-3 overflow-auto rounded-md bg-black/40 p-3 text-xs leading-5 text-emerald-100"><code>import {
   processRawImage,
+  processRawImageWithStats,
   applyAlphaMask,
   describeProcessingPlan,
   listPixelFilters
 } from "@paramission-lab/phantom";
 import { createPhantomAi }
-  from "@paramission-lab/phantom/ai";</code></pre>
+  from "@paramission-lab/phantom/ai";
+
+const { image, stats } =
+  await processRawImageWithStats(input, {
+    filter: "unsharpMask",
+    backendFailureMode: "fallback"
+  });</code></pre>
         </section>
       </aside>
     </section>
@@ -294,7 +344,7 @@ updateOperationUi();
 applySplit();
 setImageControls(false);
 window.addEventListener("pagehide", () => {
-  void phantomAi.dispose();
+  void phantomAi?.dispose();
 });
 
 function bindControls(): void {
@@ -491,7 +541,7 @@ function renderPlan(): void {
   requireElement("backendProfile").textContent =
     state.operation === "removeBackground"
       ? `AI subject • ${stats.tileSize}px mask tiles • soft alpha`
-      : `${stats.filter} • ${stats.tileSize}px tiles • ${stats.overlap}px overlap`;
+      : `${stats.filter} • ${stats.tileSize}px tiles • ${stats.overlap}px overlap • fallback ready`;
 }
 
 function renderCapabilities(): void {
@@ -543,44 +593,40 @@ async function enhancePreview(token: number, started: number): Promise<void> {
     return;
   }
 
-  const source = sourceImage;
-  const output = new ImageData(source.width, source.height);
+  const source = imageDataToRaw(sourceImage);
   const overlap = getPixelFilterOverlap(state.filter);
-  const tiles = planTiles({
-    width: source.width,
-    height: source.height,
+  const result = await processRawImageWithStats(source, {
     tileSize: PREVIEW_TILE_SIZE,
     overlap,
+    filter: state.filter,
+    backend: previewBackend,
+    backendFailureMode: "fallback",
+    onProgress: (progress) => {
+      if (token !== state.runningToken) {
+        return;
+      }
+      updateTileProgress(
+        progress.completedTiles,
+        progress.totalTiles,
+        progress.percent,
+      );
+    },
   });
-  let processedBytes = 0;
-  let processedTiles = 0;
-  let frameStarted = performance.now();
 
-  for (const tile of tiles) {
-    if (token !== state.runningToken) {
-      return;
-    }
-
-    const tileInput = readImageRect(source, tile.input);
-    const result = applyFilterToTile(
-      { descriptor: tile, rgba: tileInput },
-      state.filter,
-    );
-    writeImageRect(output, tile.output, result.rgba);
-    paintOutputTile(tile, result.rgba);
-    processedBytes += tileInput.byteLength + result.rgba.byteLength;
-    processedTiles += 1;
-
-    if (performance.now() - frameStarted >= FRAME_BUDGET_MS) {
-      updateProgress(processedTiles, tiles.length, started, processedBytes);
-      await nextFrame();
-      frameStarted = performance.now();
-    }
+  if (token !== state.runningToken) {
+    return;
   }
 
+  const output = rawToImageData(result.image);
   enhancedImage = output;
   afterContext.putImageData(output, 0, 0);
-  updateProgress(processedTiles, tiles.length, started, processedBytes);
+  updateProgress(
+    result.stats.processedTiles,
+    result.stats.totalTiles,
+    started,
+    source.data.byteLength + result.stats.outputBytes,
+  );
+  updateBackendStats(result.stats);
   requireElement("maskEngine").textContent = "-";
   requireElement("removedPixels").textContent = "-";
 }
@@ -615,6 +661,7 @@ async function removeBackgroundWithAi(
   token: number,
   started: number,
 ): Promise<void> {
+  const { resolveAiMaskRefinementOptions } = await loadAiModule();
   const mask = await getSemanticMask(cropped, bounds);
   if (token !== state.runningToken) {
     return;
@@ -642,6 +689,8 @@ async function removeBackgroundWithAi(
   );
   requireElement("maskEngine").textContent =
     `AI subject • ${((result.partialPixels / Math.max(result.mask.length, 1)) * 100).toFixed(1)}% soft edge`;
+  requireElement("kernelBackend").textContent = "-";
+  requireElement("fallbackTiles").textContent = "-";
   requireElement("modelState").textContent =
     `${semanticBackend?.toUpperCase() ?? "AI"} • cached locally`;
 }
@@ -655,6 +704,7 @@ async function getSemanticMask(
   }
 
   semanticMaskPromise ??= (async () => {
+    const ai = await getPhantomAi();
     const canvas = document.createElement("canvas");
     canvas.width = bounds.width;
     canvas.height = bounds.height;
@@ -668,7 +718,7 @@ async function getSemanticMask(
       0,
       0,
     );
-    const result = await phantomAi.createMask(canvas, updateAiProgress);
+    const result = await ai.createMask(canvas, updateAiProgress);
     semanticBackend = result.backend;
     semanticMask = result.mask;
     return result.mask;
@@ -687,8 +737,8 @@ function startAiPreload(): void {
 }
 
 function preloadAiModel(): Promise<void> {
-  aiPreloadPromise ??= phantomAi
-    .preload(updateAiProgress)
+  aiPreloadPromise ??= getPhantomAi()
+    .then((ai) => ai.preload(updateAiProgress))
     .then((result) => {
       semanticBackend = result.backend;
       requireElement("modelState").textContent =
@@ -706,6 +756,16 @@ function updateAiProgress(progress: AiProgress): void {
     progress.percent === undefined
       ? progress.label
       : `${progress.label} ${progress.percent.toFixed(0)}%`;
+}
+
+function loadAiModule(): Promise<PhantomAiModule> {
+  aiModulePromise ??= import("../../src/ai/index.js");
+  return aiModulePromise;
+}
+
+async function getPhantomAi(): Promise<PhantomAiClient> {
+  phantomAi ??= (await loadAiModule()).createPhantomAi();
+  return phantomAi;
 }
 
 function readImageRect(image: ImageData, rect: Rect): Uint8Array {
@@ -730,15 +790,6 @@ function writeImageRect(image: ImageData, rect: Rect, data: Uint8Array): void {
     const sourceEnd = sourceStart + rect.width * RGBA_CHANNELS;
     image.data.set(data.subarray(sourceStart, sourceEnd), targetStart);
   }
-}
-
-function paintOutputTile(tile: TileDescriptor, data: Uint8Array): void {
-  const image = new ImageData(
-    new Uint8ClampedArray(data),
-    tile.output.width,
-    tile.output.height,
-  );
-  afterContext.putImageData(image, tile.output.x, tile.output.y);
 }
 
 function paintImageWithCheckerboard(image: ImageData): void {
@@ -862,6 +913,23 @@ function updateProgress(
   requireElement("throughput").textContent = `${mbPerSecond.toFixed(0)} MB/s`;
 }
 
+function updateTileProgress(
+  processedTiles: number,
+  totalTiles: number,
+  percent: number,
+): void {
+  requireElement("sampled").textContent =
+    `${processedTiles}/${totalTiles} tiles`;
+  requireElement("status").textContent = `Enhancing ${percent.toFixed(0)}%`;
+}
+
+function updateBackendStats(stats: ProcessStats): void {
+  requireElement("kernelBackend").textContent =
+    `${previewBackend.id ?? "backend"} • ${stats.backendTiles.toLocaleString()} tiles`;
+  requireElement("fallbackTiles").textContent =
+    stats.fallbackTiles.toLocaleString();
+}
+
 function updateMaskProgress(
   removedPixels: number,
   totalPixels: number,
@@ -957,6 +1025,9 @@ function resetProgress(): void {
   requireElement("sampled").textContent = "0 tiles";
   requireElement("elapsed").textContent = "0 ms";
   requireElement("throughput").textContent = "-";
+  requireElement("kernelBackend").textContent =
+    state.operation === "removeBackground" ? "-" : (previewBackend.id ?? "-");
+  requireElement("fallbackTiles").textContent = "0";
   requireElement("maskEngine").textContent = "-";
   requireElement("modelState").textContent =
     semanticBackend === undefined
@@ -979,6 +1050,22 @@ function require2dContext(
     throw new Error("2D canvas is unavailable.");
   }
   return context;
+}
+
+function imageDataToRaw(image: ImageData): RawRgbaImage {
+  return {
+    width: image.width,
+    height: image.height,
+    data: new Uint8Array(image.data),
+  };
+}
+
+function rawToImageData(image: RawRgbaImage): ImageData {
+  return new ImageData(
+    new Uint8ClampedArray(image.data),
+    image.width,
+    image.height,
+  );
 }
 
 function requireElement<T extends HTMLElement = HTMLElement>(id: string): T {
