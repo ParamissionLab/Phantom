@@ -5,6 +5,35 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.2] - 2026-07-04
+
+### Added
+
+- Added the pluggable `TileProcessor` contract so callers can route planned
+  tile work through CPU, Zig WASM, worker, GPU, or native backends.
+- Added `createZigTileProcessor()` to adapt an instantiated Zig WASM backend to
+  the shared tile-processing pipeline.
+- Added demo feature-lab coverage for image helpers, facade pipelines,
+  low-level tile processing, custom processors, masks, codecs, planning,
+  buffers, fixed-point utilities, and runtime capability checks.
+
+### Changed
+
+- Updated Zig WASM development and release workflows to Zig 0.16.0.
+- Exposed custom tile processors through high-level filtering helpers so
+  `applyFilter()`, `applyFilters()`, and edit pipelines can use alternate
+  backends without dropping to lower-level APIs.
+- Made the demo layout more compact with bounded preview, stat, and right-panel
+  heights.
+
+### Fixed
+
+- Validated tile-source byte lengths before custom processors run, preventing
+  malformed sources from surfacing as backend-specific failures or corrupted
+  output.
+- Ensured custom tile processor results validate returned descriptors and output
+  byte lengths before sink writes.
+
 ## [1.0.1] - 2026-06-30
 
 ### Added
@@ -133,7 +162,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Unrolled packed Zig invert and grayscale loops and reused 3x3 neighbor indexes in enhancement kernels.
 - Added native Zig alpha-mask compositing.
 
-[Unreleased]: https://github.com/ParamissionLab/phantom/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/ParamissionLab/phantom/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/ParamissionLab/phantom/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/ParamissionLab/phantom/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/ParamissionLab/phantom/compare/v0.1.0...v1.0.0
 [0.1.0]: https://github.com/ParamissionLab/phantom/releases/tag/v0.1.0

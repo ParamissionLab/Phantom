@@ -8,7 +8,7 @@ Requirements:
 
 - Node.js 22 or later
 - npm 10 or later
-- Zig 0.15.2 for the WebAssembly build
+- Zig 0.16.0 for the WebAssembly build
 
 ```bash
 npm ci
