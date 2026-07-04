@@ -93,7 +93,7 @@ installs; build it explicitly when you need that backend.
 | Shared tile memory    | Requires `SharedArrayBuffer`; cross-origin isolation is required in browsers    |
 | WebGPU                | Requires a browser/runtime with `navigator.gpu`                                 |
 | AI background removal | Requires browser image APIs and `@huggingface/transformers` optional dependency |
-| Zig WASM build        | Requires Zig `0.15.2`                                                           |
+| Zig WASM build        | Requires Zig `0.16.0`                                                           |
 
 The core import does not initialize WebGPU, workers, WASM, or AI inference.
 
@@ -324,11 +324,12 @@ const many = await applyFilters(input, ["smoothEnhance", "unsharpMask"]);
 
 Options:
 
-| Option       | Description                                                              |
-| ------------ | ------------------------------------------------------------------------ |
-| `tileSize`   | Tile edge length in pixels                                               |
-| `signal`     | Abort signal checked between tiles                                       |
-| `onProgress` | Receives completed tile count, total tiles, percent, and tile descriptor |
+| Option          | Description                                                              |
+| --------------- | ------------------------------------------------------------------------ |
+| `tileSize`      | Tile edge length in pixels                                               |
+| `signal`        | Abort signal checked between tiles                                       |
+| `tileProcessor` | Custom CPU, worker, GPU, WASM, or native tile backend                    |
+| `onProgress`    | Receives completed tile count, total tiles, percent, and tile descriptor |
 
 ### Low-Level Processing
 
@@ -361,6 +362,33 @@ const recipe = await processRawImagePipeline(
 
 `processRawImagePipeline()` requires at least one step. If you configure an
 overlap smaller than a filter requires, Phantom throws `PhantomError`.
+
+Pass `tileProcessor` to route tile execution through another backend while
+keeping the same tile planner, source, sink, progress, and validation path:
+
+```ts
+import {
+  createZigTileProcessor,
+  instantiateZigBackend,
+  processRawImage,
+} from "@paramission-lab/phantom";
+
+const wasmBytes = await fetch("/phantom_kernel.wasm").then((response) =>
+  response.arrayBuffer(),
+);
+const zigBackend = await instantiateZigBackend(wasmBytes);
+
+const output = await processRawImage(input, {
+  filter: "smoothEnhance",
+  overlap: 1,
+  tileProcessor: createZigTileProcessor(zigBackend),
+});
+```
+
+Custom processors implement `TileProcessor`. Phantom validates tile-source byte
+lengths, returned tile descriptors, and output byte lengths before writing to
+the sink, so backend failures surface as `PhantomError` instead of silent output
+corruption.
 
 ### Custom Sources and Sinks
 
@@ -677,7 +705,10 @@ npm run build:wasm
 Instantiate the backend:
 
 ```ts
-import { instantiateZigBackend } from "@paramission-lab/phantom/wasm";
+import {
+  createZigTileProcessor,
+  instantiateZigBackend,
+} from "@paramission-lab/phantom/wasm";
 
 const bytes = await fetch("/phantom_kernel.wasm").then((response) =>
   response.arrayBuffer(),
@@ -685,11 +716,15 @@ const bytes = await fetch("/phantom_kernel.wasm").then((response) =>
 
 const backend = await instantiateZigBackend(bytes);
 const output = backend.process(input, "grayscale");
+const tileProcessor = createZigTileProcessor(backend);
 ```
 
 The Zig backend supports whole-image processing, tile processing, and alpha-mask
-application through the `WasmKernelBackend` interface. The release package ships
-`dist`; the `zig/` source tree is for repository development.
+application through the `WasmKernelBackend` interface. Use
+`createZigTileProcessor()` when you want `processRawImage()`,
+`processRawImagePipeline()`, or `processTileSource()` to execute tiles through
+the compiled Zig kernel. The release package ships `dist`; the `zig/` source
+tree is for repository development.
 
 ## Error Handling
 
@@ -727,6 +762,7 @@ Common validation failures:
 | Decoder or caller      | Provides source pixels from browser, Node.js, or a custom decoder |
 | `TileSource`           | Reads bounded rectangular RGBA regions                            |
 | Tile planner           | Splits the image into overlap-safe tile descriptors               |
+| `TileProcessor`        | Executes one tile on CPU, Zig WASM, or another backend            |
 | CPU kernels            | Provide deterministic filter behavior                             |
 | Worker pool            | Runs transferable tile jobs off the browser main thread           |
 | Zig WASM backend       | Runs compiled kernels from `phantom_kernel.wasm`                  |
@@ -745,7 +781,7 @@ Requirements:
 
 - Node.js 22 or later
 - npm 10 or later
-- Zig 0.15.2 for `npm run build:wasm` and `npm run ci`
+- Zig 0.16.0 for `npm run build:wasm` and `npm run ci`
 
 Install dependencies:
 

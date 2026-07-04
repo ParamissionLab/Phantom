@@ -39,6 +39,18 @@ export interface TileResult {
   readonly rgba: Uint8Array;
 }
 
+/**
+ * Executes one planned RGBA tile. Implement this to route tile work through
+ * CPU, worker, GPU, WASM, or native backends while reusing Phantom's planner.
+ */
+export interface TileProcessor {
+  readonly id: string;
+  processTile(
+    payload: TilePayload,
+    filter: PixelFilter,
+  ): TileResult | Promise<TileResult>;
+}
+
 export interface ProcessProgress {
   readonly tile: TileDescriptor;
   readonly completedTiles: number;
@@ -69,6 +81,7 @@ export interface ProcessOptions {
   readonly overlap?: number;
   readonly filter?: PixelFilter;
   readonly signal?: AbortSignal;
+  readonly tileProcessor?: TileProcessor;
   readonly onTile?: (tile: TileDescriptor) => void;
   readonly onProgress?: (progress: ProcessProgress) => void;
 }

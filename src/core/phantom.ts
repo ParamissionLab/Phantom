@@ -34,11 +34,13 @@ import {
   type ProcessProgress,
   type RawRgbaImage,
   type Rect,
+  type TileProcessor,
 } from "./types.js";
 
 export interface FilterOptions {
   readonly tileSize?: number;
   readonly signal?: AbortSignal;
+  readonly tileProcessor?: TileProcessor;
   readonly onProgress?: (progress: ProcessProgress) => void;
 }
 
@@ -275,6 +277,9 @@ function toProcessOptions(
   return {
     ...(options.tileSize === undefined ? {} : { tileSize: options.tileSize }),
     ...(options.signal === undefined ? {} : { signal: options.signal }),
+    ...(options.tileProcessor === undefined
+      ? {}
+      : { tileProcessor: options.tileProcessor }),
     ...(options.onProgress === undefined
       ? {}
       : { onProgress: options.onProgress }),

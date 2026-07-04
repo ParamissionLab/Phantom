@@ -10,6 +10,9 @@ import {
   type RawRgbaProcessResult,
   type RawRgbaImage,
   type Rect,
+  type TileDescriptor,
+  type TileProcessor,
+  type TileResult,
   type TileSink,
   type TileSource,
   assertRgbaLength,
@@ -17,6 +20,12 @@ import {
 
 const DEFAULT_TILE_SIZE = 512;
 const DEFAULT_OVERLAP = 1;
+
+/** Default deterministic TypeScript tile processor used by the core pipeline. */
+export const cpuTileProcessor: TileProcessor = {
+  id: "cpu",
+  processTile: applyFilterToTile,
+};
 
 /**
  * Processes a raw RGBA image by reading overlap-expanded tiles and writing
@@ -101,6 +110,7 @@ export async function processTileSourceWithStats(
   options: ProcessOptions = {},
 ): Promise<ProcessStats> {
   const { tileSize, overlap, filter } = resolveProcessOptions(options);
+  const tileProcessor = options.tileProcessor ?? cpuTileProcessor;
   const tiles = planTiles({
     width: dimensions.width,
     height: dimensions.height,
@@ -114,7 +124,12 @@ export async function processTileSourceWithStats(
   for (const descriptor of tiles) {
     options.signal?.throwIfAborted();
     const rgba = await source.read(descriptor.input);
-    const result = applyFilterToTile({ descriptor, rgba }, filter);
+    validateSourceTile(rgba, descriptor);
+    const result = await tileProcessor.processTile(
+      { descriptor, rgba },
+      filter,
+    );
+    validateTileResult(result, descriptor, tileProcessor.id);
     await sink.write(result.descriptor.output, result.rgba);
     processedTiles += 1;
     outputBytes += result.rgba.length;
@@ -192,9 +207,9 @@ function assertRectWithinImage(rect: Rect, image: RawRgbaImage): void {
   }
 }
 
-function resolveProcessOptions(options: ProcessOptions): Required<
-  Pick<ProcessOptions, "tileSize" | "overlap" | "filter">
-> {
+function resolveProcessOptions(
+  options: ProcessOptions,
+): Required<Pick<ProcessOptions, "tileSize" | "overlap" | "filter">> {
   const filter = options.filter ?? "identity";
   getPixelFilterProfile(filter);
 
@@ -209,6 +224,50 @@ function resolveProcessOptions(options: ProcessOptions): Required<
   }
 
   return { tileSize, overlap, filter };
+}
+
+function validateTileResult(
+  result: TileResult,
+  descriptor: TileDescriptor,
+  processorId: string,
+): void {
+  if (
+    result.descriptor.index !== descriptor.index ||
+    !sameRect(result.descriptor.input, descriptor.input) ||
+    !sameRect(result.descriptor.output, descriptor.output)
+  ) {
+    throw new PhantomError(
+      `Tile processor ${processorId} returned a descriptor that does not match tile ${descriptor.index}.`,
+    );
+  }
+
+  const expected = rectByteLength(descriptor.output);
+  if (result.rgba.length !== expected) {
+    throw new PhantomError(
+      `Tile processor ${processorId} returned ${result.rgba.length} bytes for tile ${descriptor.index}; expected ${expected}.`,
+    );
+  }
+}
+
+function validateSourceTile(
+  rgba: Uint8Array,
+  descriptor: TileDescriptor,
+): void {
+  const expected = rectByteLength(descriptor.input);
+  if (rgba.length !== expected) {
+    throw new PhantomError(
+      `Tile source returned ${rgba.length} bytes for tile ${descriptor.index}; expected ${expected}.`,
+    );
+  }
+}
+
+function sameRect(left: Rect, right: Rect): boolean {
+  return (
+    left.x === right.x &&
+    left.y === right.y &&
+    left.width === right.width &&
+    left.height === right.height
+  );
 }
 
 function mergeStepOptions(

@@ -1,17 +1,53 @@
 import {
   applyAlphaMask,
   applyFilterToTile,
+  applyFilter,
+  applyFilters,
+  applyMask,
+  canEncodeImageFormat,
   chooseTileSize,
+  cloneRawImage,
+  clampU8,
+  convertImage,
+  cpuTileProcessor,
+  createPhantomAssetPlan,
+  createRawRgbaImage,
+  createRawTileSink,
+  createRawTileSource,
+  cropImage,
   describeProcessingPlan,
   detectCapabilities,
+  encodeRawImage,
+  FixedByteRingBuffer,
+  FIXED_ONE,
+  fromFixed,
+  getImageFormatProfile,
   getPixelFilterOverlap,
   listPixelFilters,
+  listImageFormats,
+  makeImage,
+  multiplyFixed,
+  normalizeImageFormat,
+  optimizeImage,
+  phantom,
+  planAsset,
   planTiles,
+  processImage,
+  processRawImage,
+  processRawImagePipeline,
+  processRawImageWithStats,
+  processTileSource,
   RGBA_CHANNELS,
+  resizeImage,
+  SharedTileBuffer,
+  streamChunksToFixedBuffer,
+  toFixed,
   type PixelFilter,
   type AlphaMask,
+  type RawRgbaImage,
   type Rect,
   type TileDescriptor,
+  type TileProcessor,
 } from "../../src/index.js";
 import {
   createPhantomAi,
@@ -84,6 +120,56 @@ const featureRows = [
   ],
 ];
 
+const featureLabChecks = [
+  {
+    id: "labImage",
+    label: "Image helpers",
+    scope: "make, clone, crop, resize",
+  },
+  {
+    id: "labFacade",
+    label: "Facade pipeline",
+    scope: "applyFilter, applyFilters, edit, plan",
+  },
+  {
+    id: "labPipeline",
+    label: "Low-level pipeline",
+    scope: "stats, pipeline, custom tile source/sink",
+  },
+  {
+    id: "labTileProcessor",
+    label: "Tile processor",
+    scope: "custom processor and CPU adapter contract",
+  },
+  {
+    id: "labMask",
+    label: "Masks and background",
+    scope: "alpha mask, soft edge, flatten",
+  },
+  {
+    id: "labCodecs",
+    label: "Codecs",
+    scope: "formats, normalize, encode, convert, optimize",
+  },
+  {
+    id: "labPlanning",
+    label: "Asset planning",
+    scope: "memory budget, goal presets, format choice",
+  },
+  {
+    id: "labBuffers",
+    label: "Buffers and fixed point",
+    scope: "ring buffer, stream, shared tile, fixed math",
+  },
+  {
+    id: "labRuntime",
+    label: "Runtime exports",
+    scope: "capability report and worker availability",
+  },
+] as const;
+
+type FeatureLabId = (typeof featureLabChecks)[number]["id"];
+
 let sourceImage: ImageData | undefined;
 let enhancedImage: ImageData | undefined;
 let imageBounds: Rect | undefined;
@@ -101,7 +187,7 @@ if (app === null) {
 app.innerHTML = `
   <main class="min-h-screen bg-[#f5f7f2] text-zinc-900">
     <header class="border-b border-zinc-200 bg-white/90 px-5 py-4 backdrop-blur">
-      <div class="mx-auto flex max-w-[1600px] flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      <div class="mx-auto flex max-w-[1440px] flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <p class="text-xs font-bold uppercase tracking-[0.18em] text-emerald-700">Phantom SDK demo</p>
           <h1 class="mt-1 text-3xl font-semibold tracking-normal text-zinc-950">Image Studio for 32K / 64K files</h1>
@@ -115,9 +201,9 @@ app.innerHTML = `
       </div>
     </header>
 
-    <section class="mx-auto grid max-w-[1600px] gap-4 p-4 xl:grid-cols-[340px_minmax(0,1fr)_360px]">
-      <aside class="grid content-start gap-4">
-        <section class="rounded-lg border border-zinc-200 bg-white p-4">
+    <section class="mx-auto grid max-w-[1440px] items-start gap-3 p-3 xl:grid-cols-[280px_minmax(0,1fr)_300px]">
+      <aside class="grid content-start gap-3">
+        <section class="rounded-lg border border-zinc-200 bg-white p-3">
           <span class="text-xs font-bold uppercase tracking-[0.16em] text-zinc-500">Workflow</span>
           <div class="mt-3 grid grid-cols-2 gap-2">
             <button data-operation="enhance" class="operation min-h-12 rounded-md border border-zinc-300 bg-white px-3 text-left text-sm font-semibold text-zinc-800 hover:border-emerald-700 active">
@@ -131,7 +217,7 @@ app.innerHTML = `
           </div>
         </section>
 
-        <section class="rounded-lg border border-zinc-200 bg-white p-4">
+        <section class="rounded-lg border border-zinc-200 bg-white p-3">
           <span class="text-xs font-bold uppercase tracking-[0.16em] text-zinc-500">Enhancement preset</span>
           <div class="mt-3 grid grid-cols-2 gap-2">
             ${demoFilters
@@ -146,7 +232,7 @@ app.innerHTML = `
           </div>
         </section>
 
-        <section class="rounded-lg border border-zinc-200 bg-white p-4">
+        <section class="rounded-lg border border-zinc-200 bg-white p-3">
           <label for="resolution" class="text-xs font-bold uppercase tracking-[0.16em] text-zinc-500">Output target</label>
           <select id="resolution" class="mt-3 min-h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm">
             <option value="16k">16K canvas</option>
@@ -193,8 +279,8 @@ app.innerHTML = `
         </section>
       </aside>
 
-      <section class="grid min-w-0 gap-4">
-        <div class="viewer relative min-h-[520px] overflow-hidden rounded-lg border border-zinc-200 bg-zinc-950 shadow-sm" id="viewer">
+      <section class="grid min-w-0 content-start gap-3">
+        <div class="viewer relative h-[340px] overflow-hidden rounded-lg border border-zinc-200 bg-zinc-950 shadow-sm 2xl:h-[400px]" id="viewer">
           <canvas class="absolute inset-0 h-full w-full object-contain" id="before" width="${PREVIEW_WIDTH}" height="${PREVIEW_HEIGHT}"></canvas>
           <canvas class="absolute inset-0 h-full w-full object-contain" id="after" width="${PREVIEW_WIDTH}" height="${PREVIEW_HEIGHT}"></canvas>
           <div class="absolute bottom-4 left-4 rounded-md bg-white/90 px-3 py-2 text-xs font-bold text-zinc-700 shadow">Before</div>
@@ -207,14 +293,14 @@ app.innerHTML = `
           </div>
         </div>
 
-        <div class="grid gap-3 md:grid-cols-4">
+        <div class="grid items-start gap-2 md:grid-cols-4">
           ${statBox("Status", "status", "Ready")}
           ${statBox("Preview work", "sampled", "0 tiles")}
           ${statBox("Elapsed", "elapsed", "0 ms")}
           ${statBox("Throughput", "throughput", "-")}
         </div>
 
-        <section class="rounded-lg border border-zinc-200 bg-white p-4">
+        <section class="rounded-lg border border-zinc-200 bg-white p-3">
           <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
             <div>
               <h2 class="text-lg font-semibold text-zinc-950">SDK feature surface</h2>
@@ -222,11 +308,11 @@ app.innerHTML = `
             </div>
             <span class="rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700" id="backendProfile"></span>
           </div>
-          <div class="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <div class="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
             ${featureRows
               .map(
                 ([title, body]) =>
-                  `<div class="rounded-md border border-zinc-200 bg-zinc-50 p-3">
+                  `<div class="rounded-md border border-zinc-200 bg-zinc-50 p-2.5">
                     <strong class="block text-sm text-zinc-950">${title}</strong>
                     <span class="mt-1 block text-sm leading-5 text-zinc-600">${body}</span>
                   </div>`,
@@ -236,8 +322,8 @@ app.innerHTML = `
         </section>
       </section>
 
-      <aside class="grid content-start gap-4">
-        <section class="rounded-lg border border-zinc-200 bg-white p-4">
+      <aside class="grid content-start gap-3">
+        <section class="rounded-lg border border-zinc-200 bg-white p-3">
           <h2 class="text-lg font-semibold text-zinc-950">Runtime capability</h2>
           <div class="mt-3 grid gap-2 text-sm">
             ${metricRow("Backend", "capBackend")}
@@ -247,13 +333,37 @@ app.innerHTML = `
           </div>
         </section>
 
-        <section class="rounded-lg border border-zinc-200 bg-white p-4">
+        <section class="rounded-lg border border-zinc-200 bg-white p-3">
+          <div class="flex items-center justify-between gap-3">
+            <h2 class="text-lg font-semibold text-zinc-950">Feature lab</h2>
+            <button id="runFeatureLab" class="min-h-9 rounded-md border border-zinc-300 bg-white px-3 text-xs font-bold text-zinc-800 hover:border-emerald-700">Run checks</button>
+          </div>
+          <div class="mt-3 grid max-h-[390px] gap-2 overflow-y-auto pr-1">
+            ${featureLabChecks
+              .map(
+                (check) =>
+                  `<div id="${check.id}" class="rounded-md border border-zinc-200 bg-zinc-50 p-2.5">
+                    <div class="flex items-start justify-between gap-3">
+                      <div>
+                        <strong class="block text-sm text-zinc-950">${check.label}</strong>
+                        <span class="mt-1 block text-xs leading-5 text-zinc-600">${check.scope}</span>
+                      </div>
+                      <span data-lab-status class="rounded-full bg-zinc-200 px-2 py-1 text-xs font-bold text-zinc-600">idle</span>
+                    </div>
+                    <span data-lab-detail class="mt-2 block text-xs leading-5 text-zinc-500">Waiting for browser check.</span>
+                  </div>`,
+              )
+              .join("")}
+          </div>
+        </section>
+
+        <section class="rounded-lg border border-zinc-200 bg-white p-3">
           <h2 class="text-lg font-semibold text-zinc-950">Filter profiles</h2>
-          <div class="mt-3 grid gap-2">
+          <div class="mt-3 grid max-h-[300px] gap-2 overflow-y-auto pr-1">
             ${listPixelFilters()
               .map(
                 (profile) =>
-                  `<div class="rounded-md border border-zinc-200 bg-white p-3">
+                  `<div class="rounded-md border border-zinc-200 bg-white p-2.5">
                     <div class="flex items-center justify-between gap-3">
                       <strong class="text-sm text-zinc-950">${profile.label}</strong>
                       <span class="rounded-full bg-zinc-100 px-2 py-1 text-xs font-bold text-zinc-600">overlap ${profile.overlap}</span>
@@ -265,7 +375,7 @@ app.innerHTML = `
           </div>
         </section>
 
-        <section class="rounded-lg border border-zinc-200 bg-zinc-950 p-4 text-zinc-100">
+        <section class="rounded-lg border border-zinc-200 bg-zinc-950 p-3 text-zinc-100">
           <h2 class="text-lg font-semibold">Use the SDK</h2>
   <pre class="mt-3 overflow-auto rounded-md bg-black/40 p-3 text-xs leading-5 text-emerald-100"><code>import {
   processRawImage,
@@ -293,6 +403,7 @@ renderCapabilities();
 updateOperationUi();
 applySplit();
 setImageControls(false);
+void runFeatureLab();
 window.addEventListener("pagehide", () => {
   void phantomAi.dispose();
 });
@@ -429,6 +540,10 @@ function bindControls(): void {
     void runCurrentOperation();
   });
 
+  requireElement("runFeatureLab").addEventListener("click", () => {
+    void runFeatureLab();
+  });
+
   requireElement("export").addEventListener("click", () => {
     exportPreview();
   });
@@ -504,6 +619,210 @@ function renderCapabilities(): void {
     : "isolated off";
   requireElement("capLanes").textContent =
     capabilities.hardwareConcurrency.toLocaleString();
+}
+
+async function runFeatureLab(): Promise<void> {
+  const runButton = requireElement<HTMLButtonElement>("runFeatureLab");
+  runButton.disabled = true;
+  runButton.textContent = "Running";
+
+  for (const check of featureLabChecks) {
+    setFeatureLabStatus(check.id, "running", "Running browser check...");
+  }
+
+  const runners: Record<FeatureLabId, () => Promise<string> | string> = {
+    labImage: runImageHelperLab,
+    labFacade: runFacadeLab,
+    labPipeline: runPipelineLab,
+    labTileProcessor: runTileProcessorLab,
+    labMask: runMaskLab,
+    labCodecs: runCodecLab,
+    labPlanning: runPlanningLab,
+    labBuffers: runBufferLab,
+    labRuntime: runRuntimeLab,
+  };
+
+  for (const check of featureLabChecks) {
+    try {
+      const detail = await runners[check.id]();
+      setFeatureLabStatus(check.id, "pass", detail);
+    } catch (error: unknown) {
+      setFeatureLabStatus(check.id, "fail", readableError(error));
+    }
+  }
+
+  runButton.disabled = false;
+  runButton.textContent = "Run checks";
+}
+
+function runImageHelperLab(): string {
+  const generated = makeImage(1, 1, { r: 12, g: 34, b: 56 });
+  const raw = createLabImage();
+  const cloned = cloneRawImage(raw);
+  const cropped = cropImage(cloned, { x: 1, y: 1, width: 4, height: 3 });
+  const resized = resizeImage(cropped, 8, 6, { method: "bilinear" });
+
+  return `${generated.data[0] ?? 0}/${raw.width}x${raw.height} -> ${cropped.width}x${cropped.height} crop -> ${resized.width}x${resized.height} resize`;
+}
+
+async function runFacadeLab(): Promise<string> {
+  const raw = createLabImage();
+  const one = await applyFilter(raw, "invert", { tileSize: 3 });
+  const many = await applyFilters(raw, ["grayscale", "invert"], {
+    tileSize: 3,
+  });
+  const edited = await phantom
+    .edit(raw)
+    .crop({ x: 0, y: 0, width: 3, height: 3 })
+    .resize(6, 6, { method: "nearest" })
+    .filter("identity", { tileSize: 3 })
+    .run();
+  const plan = await processImage(raw).plan({ goal: "preview" });
+  const assetPlan = planAsset(raw, { goal: "delivery" });
+
+  return `${one.data.byteLength + many.data.byteLength + edited.data.byteLength} bytes processed; preview ${plan.encode.format}, delivery ${assetPlan.encode.format}`;
+}
+
+async function runPipelineLab(): Promise<string> {
+  const raw = createLabImage();
+  const withStats = await processRawImageWithStats(raw, {
+    filter: "smoothEnhance",
+    tileSize: 3,
+  });
+  const piped = await processRawImagePipeline(
+    raw,
+    [
+      { filter: "grayscale", overlap: 0 },
+      { filter: "invert", overlap: 0 },
+    ],
+    { tileSize: 3 },
+  );
+  const output = createRawRgbaImage({ width: raw.width, height: raw.height });
+  await processTileSource(
+    { width: raw.width, height: raw.height },
+    createRawTileSource(raw),
+    createRawTileSink(output),
+    { filter: "identity", overlap: 0, tileSize: 3 },
+  );
+
+  return `${withStats.stats.processedTiles}/${withStats.stats.totalTiles} tiles, ${piped.data.byteLength + output.data.byteLength} output bytes`;
+}
+
+async function runTileProcessorLab(): Promise<string> {
+  const raw = createLabImage();
+  let customTiles = 0;
+  const demoProcessor: TileProcessor = {
+    id: "demo-processor",
+    processTile(payload, filter) {
+      customTiles += 1;
+      return applyFilterToTile(payload, filter);
+    },
+  };
+
+  const custom = await processRawImage(raw, {
+    filter: "identity",
+    overlap: 0,
+    tileSize: 3,
+    tileProcessor: demoProcessor,
+  });
+  const cpu = await processRawImage(raw, {
+    filter: "invert",
+    overlap: 0,
+    tileSize: 3,
+    tileProcessor: cpuTileProcessor,
+  });
+
+  return `${customTiles} custom tiles, CPU adapter ${custom.data.byteLength + cpu.data.byteLength} bytes`;
+}
+
+function runMaskLab(): string {
+  const raw = createLabImage();
+  const mask: AlphaMask = {
+    width: raw.width,
+    height: raw.height,
+    data: new Uint8Array(raw.width * raw.height),
+  };
+
+  for (let index = 0; index < mask.data.length; index += 1) {
+    mask.data[index] = index % raw.width < raw.width / 2 ? 255 : 16;
+  }
+
+  const refined = applyAlphaMask(raw, mask, {
+    threshold: 32,
+    softness: 48,
+    featherRadius: 1,
+  });
+  const alias = applyMask(raw, mask, {
+    threshold: 32,
+    softness: 16,
+    featherRadius: 0,
+  });
+  const flattened = phantom.replaceBackground(refined, {
+    r: 245,
+    g: 247,
+    b: 242,
+  });
+
+  return `${refined.removedPixels + alias.removedPixels} removed samples, flattened alpha ${flattened.data[3] ?? 0}`;
+}
+
+async function runCodecLab(): Promise<string> {
+  const raw = createLabImage();
+  const normalized = normalizeImageFormat(".jpg");
+  const profile = getImageFormatProfile(normalized);
+  const formats = listImageFormats();
+  const pngEncodable = canEncodeImageFormat("png");
+  const encoded = await encodeRawImage(raw, { format: "png" });
+  const converted = await convertImage(raw, { format: "png" });
+  const optimized = await optimizeImage(encoded.blob, { format: "png" });
+
+  return `${formats.length} formats, ${profile.mimeType}, png=${pngEncodable ? "encode" : "read-only"}, ${encoded.outputBytes + converted.outputBytes + optimized.outputBytes} bytes`;
+}
+
+function runPlanningLab(): string {
+  const raw = createLabImage();
+  const preview = createPhantomAssetPlan(raw, { goal: "preview" });
+  const cutout = createPhantomAssetPlan(raw, {
+    goal: "transparent-cutout",
+    maxWorkerBytes: 4 * 1024 * 1024,
+  });
+  const stats = describeProcessingPlan(raw, {
+    tileSize: preview.tileSize,
+    overlap: preview.overlap,
+    filter: preview.filters[0] ?? "identity",
+  });
+
+  return `${preview.goal}:${preview.encode.format}, ${cutout.goal}:${cutout.encode.format}, ${stats.tileCount} planned tiles`;
+}
+
+async function runBufferLab(): Promise<string> {
+  const ring = new FixedByteRingBuffer(8);
+  ring.writeOrThrow(Uint8Array.from([1, 2, 3, 4, 5]));
+  const readTarget = new Uint8Array(3);
+  const read = ring.read(readTarget);
+  const chunks: number[] = [];
+  const streamed = await streamChunksToFixedBuffer(
+    [Uint8Array.from([6, 7]), Uint8Array.from([8, 9])],
+    (chunk) => {
+      chunks.push(chunk.byteLength);
+    },
+    4,
+  );
+  const shared = new SharedTileBuffer(16, { preferShared: true });
+  shared.view(4, 4).fill(9);
+  const fixedSample = fromFixed(
+    multiplyFixed(FIXED_ONE, toFixed(0.5)) + toFixed(0.25),
+  );
+
+  return `${read} ring bytes, ${streamed} streamed, shared=${shared.shared ? "yes" : "no"}, fixed=${fixedSample.toFixed(2)}, clamp=${clampU8(300)}`;
+}
+
+function runRuntimeLab(): string {
+  const report = detectCapabilities();
+  const workerAvailable = typeof Worker !== "undefined";
+  const filters = listPixelFilters().length;
+
+  return `${report.backend}, workers=${workerAvailable ? "available" : "unavailable"}, filters=${filters}, lanes=${report.hardwareConcurrency}`;
 }
 
 async function runCurrentOperation(): Promise<void> {
@@ -932,6 +1251,49 @@ function operationSlug(): string {
     : state.filter;
 }
 
+function createLabImage(): RawRgbaImage {
+  const image = createRawRgbaImage(
+    { width: 6, height: 5 },
+    { r: 0, g: 0, b: 0 },
+  );
+
+  for (let y = 0; y < image.height; y += 1) {
+    for (let x = 0; x < image.width; x += 1) {
+      const index = (y * image.width + x) * RGBA_CHANNELS;
+      image.data[index] = 20 + x * 24;
+      image.data[index + 1] = 48 + y * 28;
+      image.data[index + 2] = 160 - x * 10 + y * 6;
+      image.data[index + 3] = x + y > 6 ? 168 : 255;
+    }
+  }
+
+  return image;
+}
+
+function setFeatureLabStatus(
+  id: FeatureLabId,
+  status: "running" | "pass" | "fail",
+  detail: string,
+): void {
+  const card = requireElement(id);
+  const badge = card.querySelector<HTMLElement>("[data-lab-status]");
+  const body = card.querySelector<HTMLElement>("[data-lab-detail]");
+
+  if (badge === null || body === null) {
+    throw new Error(`Missing feature lab nodes for ${id}.`);
+  }
+
+  const styles = {
+    running: "bg-blue-100 text-blue-700",
+    pass: "bg-emerald-100 text-emerald-700",
+    fail: "bg-red-100 text-red-700",
+  };
+
+  badge.className = `rounded-full px-2 py-1 text-xs font-bold ${styles[status]}`;
+  badge.textContent = status;
+  body.textContent = detail;
+}
+
 function formatBytes(bytes: number): string {
   const units = ["B", "KB", "MB", "GB", "TB"];
   let value = bytes;
@@ -1005,8 +1367,8 @@ function metricRow(label: string, id: string, initial = ""): string {
 }
 
 function statBox(label: string, id: string, initial: string): string {
-  return `<div class="rounded-lg border border-zinc-200 bg-white p-3">
+  return `<div class="min-h-20 rounded-lg border border-zinc-200 bg-white p-2.5">
     <span class="block text-xs font-bold uppercase tracking-[0.14em] text-zinc-500">${label}</span>
-    <strong id="${id}" class="mt-1 block text-xl font-semibold text-zinc-950">${initial}</strong>
+    <strong id="${id}" class="mt-1 block text-lg font-semibold text-zinc-950">${initial}</strong>
   </div>`;
 }

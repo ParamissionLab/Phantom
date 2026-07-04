@@ -79,6 +79,7 @@ export { phantom as default } from "./core/phantom.js";
 export {
   createRawTileSink,
   createRawTileSource,
+  cpuTileProcessor,
   processRawImage,
   processRawImagePipeline,
   processRawImageWithStats,
@@ -103,6 +104,7 @@ export {
   type ComputeBackend,
 } from "./gpu/index.js";
 export {
+  createZigTileProcessor,
   instantiateZigBackend,
   type WasmKernelBackend,
   type WasmKernelExports,
@@ -143,6 +145,7 @@ export {
   type StreamBufferOptions,
   type TileDescriptor,
   type TilePayload,
+  type TileProcessor,
   type TileResult,
   type TileSink,
   type TileSource,

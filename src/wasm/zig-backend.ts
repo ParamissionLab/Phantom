@@ -2,6 +2,9 @@ import {
   PhantomError,
   type PixelFilter,
   type RawRgbaImage,
+  type TilePayload,
+  type TileProcessor,
+  type TileResult,
   assertPositiveInteger,
   assertRgbaLength,
 } from "../core/types.js";
@@ -25,6 +28,39 @@ export async function instantiateZigBackend(
   ) as WasmKernelExports;
   validateExports(exports);
   return new ZigWasmBackend(exports);
+}
+
+/**
+ * Adapts an instantiated Zig WASM backend to the core tile-processing contract.
+ */
+export function createZigTileProcessor(
+  backend: WasmKernelBackend,
+): TileProcessor {
+  return {
+    id: "zig-wasm",
+    processTile(payload: TilePayload, filter: PixelFilter): TileResult {
+      const outputOffsetX =
+        payload.descriptor.output.x - payload.descriptor.input.x;
+      const outputOffsetY =
+        payload.descriptor.output.y - payload.descriptor.input.y;
+
+      assertTileOffset(payload, outputOffsetX, outputOffsetY);
+
+      return {
+        descriptor: payload.descriptor,
+        rgba: backend.processTile(
+          payload.rgba,
+          payload.descriptor.input.width,
+          payload.descriptor.input.height,
+          outputOffsetX,
+          outputOffsetY,
+          payload.descriptor.output.width,
+          payload.descriptor.output.height,
+          filter,
+        ),
+      };
+    },
+  };
 }
 
 class ZigWasmBackend implements WasmKernelBackend {
@@ -189,6 +225,32 @@ class ZigWasmBackend implements WasmKernelBackend {
     const missingBytes = requiredBytes - this.memory.buffer.byteLength;
     const pages = Math.ceil(missingBytes / PAGE_SIZE_BYTES);
     this.memory.grow(pages);
+  }
+}
+
+function assertTileOffset(
+  payload: TilePayload,
+  outputOffsetX: number,
+  outputOffsetY: number,
+): void {
+  assertPositiveInteger(payload.descriptor.input.width, "input.width");
+  assertPositiveInteger(payload.descriptor.input.height, "input.height");
+  assertPositiveInteger(payload.descriptor.output.width, "output.width");
+  assertPositiveInteger(payload.descriptor.output.height, "output.height");
+
+  if (
+    outputOffsetX < 0 ||
+    outputOffsetY < 0 ||
+    outputOffsetX + payload.descriptor.output.width >
+      payload.descriptor.input.width ||
+    outputOffsetY + payload.descriptor.output.height >
+      payload.descriptor.input.height
+  ) {
+    throw new PhantomError(
+      `Tile output rectangle must be contained inside its input rectangle: ${JSON.stringify(
+        payload.descriptor,
+      )}.`,
+    );
   }
 }
 

@@ -1,10 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   PhantomError,
   processRawImage,
   processRawImagePipeline,
   processRawImageWithStats,
+  processTileSource,
   type RawRgbaImage,
+  type TileSink,
+  type TileProcessor,
+  type TileSource,
 } from "../src/index.js";
 
 function makeImage(): RawRgbaImage {
@@ -79,6 +83,79 @@ describe("processRawImage", () => {
     ]);
   });
 
+  it("can delegate tile work to a custom processor", async () => {
+    const seenFilters: string[] = [];
+    const tileProcessor: TileProcessor = {
+      id: "test-processor",
+      processTile(payload, filter) {
+        seenFilters.push(filter);
+        const output = new Uint8Array(
+          payload.descriptor.output.width *
+            payload.descriptor.output.height *
+            4,
+        );
+        output.fill(7);
+        return { descriptor: payload.descriptor, rgba: output };
+      },
+    };
+
+    const output = await processRawImage(makeImage(), {
+      tileSize: 3,
+      overlap: 0,
+      filter: "identity",
+      tileProcessor,
+    });
+
+    expect(seenFilters).toEqual(["identity"]);
+    expect(Array.from(output.data)).toEqual(new Array<number>(24).fill(7));
+  });
+
+  it("rejects custom processor output with the wrong tile length", async () => {
+    const tileProcessor: TileProcessor = {
+      id: "broken-processor",
+      processTile(payload) {
+        return { descriptor: payload.descriptor, rgba: new Uint8Array(1) };
+      },
+    };
+
+    await expect(
+      processRawImage(makeImage(), {
+        tileSize: 3,
+        overlap: 0,
+        filter: "identity",
+        tileProcessor,
+      }),
+    ).rejects.toThrow(/broken-processor.*expected/i);
+  });
+
+  it("rejects malformed tile source buffers before custom processors run", async () => {
+    const processTile = vi.fn<TileProcessor["processTile"]>();
+    const tileProcessor: TileProcessor = {
+      id: "unused-processor",
+      processTile,
+    };
+    const source: TileSource = {
+      read() {
+        return new Uint8Array(1);
+      },
+    };
+    const sink: TileSink = {
+      write() {
+        throw new Error("sink should not be called");
+      },
+    };
+
+    await expect(
+      processTileSource({ width: 2, height: 2 }, source, sink, {
+        tileSize: 2,
+        overlap: 0,
+        filter: "identity",
+        tileProcessor,
+      }),
+    ).rejects.toThrow(/tile source.*expected/i);
+    expect(processTile).not.toHaveBeenCalled();
+  });
+
   it("runs multiple filters as a reusable pipeline", async () => {
     const output = await processRawImagePipeline(
       {
@@ -86,7 +163,10 @@ describe("processRawImage", () => {
         height: 1,
         data: Uint8Array.from([10, 20, 30, 255]),
       },
-      [{ filter: "grayscale", overlap: 0 }, { filter: "invert", overlap: 0 }],
+      [
+        { filter: "grayscale", overlap: 0 },
+        { filter: "invert", overlap: 0 },
+      ],
       { tileSize: 1 },
     );
 

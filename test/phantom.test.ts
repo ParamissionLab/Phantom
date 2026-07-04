@@ -12,6 +12,7 @@ import phantomDefault, {
   replaceBackground,
   resizeImage,
   type RawRgbaImage,
+  type TileProcessor,
 } from "../src/index.js";
 
 function sampleImage(): RawRgbaImage {
@@ -97,6 +98,31 @@ describe("default phantom API", () => {
     );
 
     expect(Array.from(output.data)).toEqual([237, 237, 237, 255]);
+  });
+
+  it("passes custom tile processors through the simple filter helpers", async () => {
+    const seenFilters: string[] = [];
+    const tileProcessor: TileProcessor = {
+      id: "facade-test",
+      processTile(payload, filter) {
+        seenFilters.push(filter);
+        const output = new Uint8Array(
+          payload.descriptor.output.width *
+            payload.descriptor.output.height *
+            4,
+        );
+        output.fill(42);
+        return { descriptor: payload.descriptor, rgba: output };
+      },
+    };
+
+    const output = await applyFilter(sampleImage(), "identity", {
+      tileSize: 2,
+      tileProcessor,
+    });
+
+    expect(seenFilters).toEqual(["identity"]);
+    expect(Array.from(output.data)).toEqual(new Array<number>(16).fill(42));
   });
 
   it("uses simple aliases for masks, backgrounds, and asset planning", () => {
