@@ -86,6 +86,10 @@ export {
   processTileSource,
   processTileSourceWithStats,
 } from "./core/pipeline.js";
+export {
+  TileBufferPool,
+  type TileBufferPoolStats,
+} from "./core/tile-buffer-pool.js";
 export { clampRect, planTiles, rectByteLength } from "./core/tiling.js";
 export {
   FIXED_ONE,

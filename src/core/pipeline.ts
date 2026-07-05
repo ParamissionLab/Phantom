@@ -1,5 +1,6 @@
 import { applyFilterToTile } from "./kernels.js";
 import { getPixelFilterOverlap, getPixelFilterProfile } from "./filters.js";
+import { TileBufferPool } from "./tile-buffer-pool.js";
 import { planTiles, rectByteLength } from "./tiling.js";
 import {
   PhantomError,
@@ -20,6 +21,13 @@ import {
 
 const DEFAULT_TILE_SIZE = 512;
 const DEFAULT_OVERLAP = 1;
+
+/**
+ * Module-level buffer pool shared across all synchronous pipeline invocations.
+ * Eliminates per-tile allocation for the source read buffer when processing
+ * multiple images in sequence (common in batch/pipeline scenarios).
+ */
+const sharedBufferPool = new TileBufferPool(4);
 
 /** Default deterministic TypeScript tile processor used by the core pipeline. */
 export const cpuTileProcessor: TileProcessor = {
@@ -49,12 +57,25 @@ export async function processRawImageWithStats(
 ): Promise<RawRgbaProcessResult> {
   assertRgbaLength(input);
 
+  const { tileSize, overlap, filter } = resolveProcessOptions(options);
+  const tileProcessor = options.tileProcessor ?? cpuTileProcessor;
+
   const output: RawRgbaImage = {
     width: input.width,
     height: input.height,
     data: new Uint8Array(input.data.length),
   };
 
+  // Fast-path: synchronous CPU processing avoids all async/Promise overhead
+  const isSyncProcessor =
+    tileProcessor === cpuTileProcessor || tileProcessor.id === "cpu";
+
+  if (isSyncProcessor && !options.signal) {
+    const stats = processRawImageSync(input, output, tileSize, overlap, filter, options);
+    return { image: output, stats };
+  }
+
+  // Async path for custom tile processors (WASM, GPU, workers)
   const stats = await processTileSourceWithStats(
     { width: input.width, height: input.height },
     createRawTileSource(input),
@@ -63,6 +84,121 @@ export async function processRawImageWithStats(
   );
 
   return { image: output, stats };
+}
+
+/**
+ * Synchronous fast-path for CPU tile processing.
+ * Eliminates: Promise overhead, source/sink abstraction overhead,
+ * per-tile Uint8Array allocation for source reads (uses subarray views).
+ */
+function processRawImageSync(
+  input: RawRgbaImage,
+  output: RawRgbaImage,
+  tileSize: number,
+  overlap: number,
+  filter: import("./types.js").PixelFilter,
+  options: ProcessOptions,
+): ProcessStats {
+  const tiles = planTiles({
+    width: input.width,
+    height: input.height,
+    tileSize,
+    overlap,
+  });
+
+  const startedAtMs = nowMs();
+  let processedTiles = 0;
+  let outputBytes = 0;
+
+  // Acquire a pooled buffer sized for the largest tile input rect.
+  // Avoids per-tile allocation and GC pressure on large images.
+  let maxInputBytes = 0;
+  for (let i = 0; i < tiles.length; i += 1) {
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    const bytes = rectByteLength(tiles[i]!.input);
+    if (bytes > maxInputBytes) maxInputBytes = bytes;
+  }
+  const sourceBuffer = sharedBufferPool.acquire(maxInputBytes);
+
+  for (let i = 0; i < tiles.length; i += 1) {
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    const descriptor = tiles[i]!;
+
+    // Read source tile into pooled buffer (zero-copy row extraction)
+    const inputBytes = readTileIntoBuffer(input, descriptor.input, sourceBuffer);
+
+    // Process tile synchronously
+    const result = applyFilterToTile(
+      { descriptor, rgba: sourceBuffer.subarray(0, inputBytes) },
+      filter,
+    );
+
+    // Write result directly into output image (inline sink)
+    writeTileToOutput(output, result.descriptor.output, result.rgba);
+
+    processedTiles += 1;
+    outputBytes += result.rgba.length;
+    options.onTile?.(descriptor);
+    options.onProgress?.({
+      tile: descriptor,
+      completedTiles: processedTiles,
+      totalTiles: tiles.length,
+      percent: (processedTiles / tiles.length) * 100,
+    });
+  }
+
+  // Return buffer to pool for reuse by subsequent processRawImage calls
+  sharedBufferPool.release(sourceBuffer);
+
+  return {
+    totalTiles: tiles.length,
+    processedTiles,
+    outputBytes,
+    elapsedMs: nowMs() - startedAtMs,
+  };
+}
+
+/**
+ * Reads tile data from a raw image into a pre-allocated buffer.
+ * Returns the number of bytes written (= rect.width * rect.height * 4).
+ */
+function readTileIntoBuffer(
+  image: RawRgbaImage,
+  rect: Rect,
+  buffer: Uint8Array,
+): number {
+  const rowBytes = rect.width * RGBA_CHANNELS;
+  const totalBytes = rowBytes * rect.height;
+
+  for (let row = 0; row < rect.height; row += 1) {
+    const sourceStart = ((rect.y + row) * image.width + rect.x) * RGBA_CHANNELS;
+    const destStart = row * rowBytes;
+    // Use subarray → set for V8 memcpy optimization
+    buffer.set(
+      image.data.subarray(sourceStart, sourceStart + rowBytes),
+      destStart,
+    );
+  }
+
+  return totalBytes;
+}
+
+/**
+ * Writes tile result data directly into the output image buffer.
+ * Inlined sink — no function call abstraction overhead.
+ */
+function writeTileToOutput(
+  image: RawRgbaImage,
+  rect: Rect,
+  data: Uint8Array,
+): void {
+  const rowBytes = rect.width * RGBA_CHANNELS;
+
+  for (let row = 0; row < rect.height; row += 1) {
+    const targetStart = ((rect.y + row) * image.width + rect.x) * RGBA_CHANNELS;
+    const sourceStart = row * rowBytes;
+    image.data.set(data.subarray(sourceStart, sourceStart + rowBytes), targetStart);
+  }
 }
 
 /**
@@ -157,13 +293,15 @@ export function createRawTileSource(image: RawRgbaImage): TileSource {
     read(rect: Rect): Uint8Array {
       assertRectWithinImage(rect, image);
 
-      const output = new Uint8Array(rectByteLength(rect));
+      const rowBytes = rect.width * RGBA_CHANNELS;
+      const output = new Uint8Array(rowBytes * rect.height);
       for (let row = 0; row < rect.height; row += 1) {
         const sourceStart =
           ((rect.y + row) * image.width + rect.x) * RGBA_CHANNELS;
-        const sourceEnd = sourceStart + rect.width * RGBA_CHANNELS;
-        const outputStart = row * rect.width * RGBA_CHANNELS;
-        output.set(image.data.subarray(sourceStart, sourceEnd), outputStart);
+        output.set(
+          image.data.subarray(sourceStart, sourceStart + rowBytes),
+          row * rowBytes,
+        );
       }
       return output;
     },
@@ -183,12 +321,15 @@ export function createRawTileSink(image: RawRgbaImage): TileSink {
         );
       }
 
+      const rowBytes = rect.width * RGBA_CHANNELS;
       for (let row = 0; row < rect.height; row += 1) {
         const targetStart =
           ((rect.y + row) * image.width + rect.x) * RGBA_CHANNELS;
-        const sourceStart = row * rect.width * RGBA_CHANNELS;
-        const sourceEnd = sourceStart + rect.width * RGBA_CHANNELS;
-        image.data.set(data.subarray(sourceStart, sourceEnd), targetStart);
+        const sourceStart = row * rowBytes;
+        image.data.set(
+          data.subarray(sourceStart, sourceStart + rowBytes),
+          targetStart,
+        );
       }
     },
   };
@@ -271,17 +412,24 @@ function sameRect(left: Rect, right: Rect): boolean {
 }
 
 function mergeStepOptions(
-  options: Omit<ProcessOptions, "filter">,
+  base: Omit<ProcessOptions, "filter">,
   step: ProcessPipelineStep,
 ): ProcessOptions {
-  return {
-    ...options,
-    ...(step.tileSize === undefined ? {} : { tileSize: step.tileSize }),
-    ...(step.overlap === undefined ? {} : { overlap: step.overlap }),
+  const merged: ProcessOptions = {
+    ...base,
     filter: step.filter,
   };
+  if (step.tileSize !== undefined) {
+    (merged as { tileSize?: number }).tileSize = step.tileSize;
+  }
+  if (step.overlap !== undefined) {
+    (merged as { overlap?: number }).overlap = step.overlap;
+  }
+  return merged;
 }
 
 function nowMs(): number {
-  return globalThis.performance?.now() ?? Date.now();
+  return typeof performance !== "undefined"
+    ? performance.now()
+    : Date.now();
 }
