@@ -202,8 +202,9 @@ function writeTileToOutput(
 }
 
 /**
- * Runs multiple filters in sequence without making callers manually pass the
- * output of one step into the next.
+ * Runs multiple filters in sequence. Uses double-buffered in-place processing
+ * to eliminate intermediate image allocations — only 2 buffers are ever used
+ * regardless of how many pipeline steps there are.
  */
 export async function processRawImagePipeline(
   input: RawRgbaImage,
@@ -214,12 +215,90 @@ export async function processRawImagePipeline(
     throw new PhantomError("At least one pipeline step is required.");
   }
 
-  let current = input;
-  for (const step of steps) {
-    current = await processRawImage(current, mergeStepOptions(options, step));
+  // Single step — no double-buffering needed
+  if (steps.length === 1) {
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    return processRawImage(input, mergeStepOptions(options, steps[0]!));
   }
 
-  return current;
+  // Multi-step: use double-buffering to avoid allocating N images
+  // Only 2 buffers (A and B) are used, ping-ponging between them.
+  const bufferSize = input.width * input.height * RGBA_CHANNELS;
+  const bufA: RawRgbaImage = {
+    width: input.width,
+    height: input.height,
+    data: new Uint8Array(bufferSize),
+  };
+  const bufB: RawRgbaImage = {
+    width: input.width,
+    height: input.height,
+    data: new Uint8Array(bufferSize),
+  };
+
+  // First step reads from input, writes to bufA
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+  const firstStep = steps[0]!;
+  const firstOptions = resolveProcessOptions(mergeStepOptions(options, firstStep));
+  const firstTiles = planTiles({
+    width: input.width,
+    height: input.height,
+    tileSize: firstOptions.tileSize,
+    overlap: firstOptions.overlap,
+  });
+  processImageTilesSync(input, bufA, firstTiles, firstOptions.filter);
+
+  // Subsequent steps alternate between bufA→bufB and bufB→bufA
+  for (let s = 1; s < steps.length; s += 1) {
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    const step = steps[s]!;
+    const stepOptions = resolveProcessOptions(mergeStepOptions(options, step));
+    const tiles = planTiles({
+      width: input.width,
+      height: input.height,
+      tileSize: stepOptions.tileSize,
+      overlap: stepOptions.overlap,
+    });
+
+    if (s % 2 === 1) {
+      processImageTilesSync(bufA, bufB, tiles, stepOptions.filter);
+    } else {
+      processImageTilesSync(bufB, bufA, tiles, stepOptions.filter);
+    }
+  }
+
+  // Return whichever buffer has the final result
+  return (steps.length % 2 === 1) ? bufA : bufB;
+}
+
+/**
+ * Ultra-fast synchronous tile processing — no buffer pool overhead,
+ * processes tiles directly between input and output images.
+ */
+function processImageTilesSync(
+  input: RawRgbaImage,
+  output: RawRgbaImage,
+  tiles: readonly TileDescriptor[],
+  filter: import("./types.js").PixelFilter,
+): void {
+  // Pre-allocate source buffer for largest tile
+  let maxInputBytes = 0;
+  for (let i = 0; i < tiles.length; i += 1) {
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    const bytes = rectByteLength(tiles[i]!.input);
+    if (bytes > maxInputBytes) maxInputBytes = bytes;
+  }
+  const sourceBuffer = new Uint8Array(maxInputBytes);
+
+  for (let i = 0; i < tiles.length; i += 1) {
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    const descriptor = tiles[i]!;
+    const inputBytes = readTileIntoBuffer(input, descriptor.input, sourceBuffer);
+    const result = applyFilterToTile(
+      { descriptor, rgba: sourceBuffer.subarray(0, inputBytes) },
+      filter,
+    );
+    writeTileToOutput(output, result.descriptor.output, result.rgba);
+  }
 }
 
 /**

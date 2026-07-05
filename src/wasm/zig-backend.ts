@@ -141,10 +141,15 @@ class ZigWasmBackend implements WasmKernelBackend {
         throw new PhantomError(`Unsupported WASM filter: ${String(filter)}`);
     }
 
+    // Use Uint8Array constructor with shared buffer — copies only the output region
+    // into a new independent buffer that won't be invalidated by future memory.grow()
+    const result = new Uint8Array(byteLength);
+    result.set(new Uint8Array(this.memory.buffer, outputPtr, byteLength));
+
     return {
       width: image.width,
       height: image.height,
-      data: heap.slice(outputPtr, outputPtr + byteLength),
+      data: result,
     };
   }
 
@@ -189,7 +194,10 @@ class ZigWasmBackend implements WasmKernelBackend {
       filterToCode(filter),
     );
 
-    return heap.slice(outputPtr, outputPtr + outputBytes);
+    // Direct typed-array view copy — avoids ArrayBuffer.prototype.slice overhead
+    const result = new Uint8Array(outputBytes);
+    result.set(new Uint8Array(this.memory.buffer, outputPtr, outputBytes));
+    return result;
   }
 
   public applyAlphaMask(image: RawRgbaImage, mask: Uint8Array): RawRgbaImage {
@@ -204,16 +212,21 @@ class ZigWasmBackend implements WasmKernelBackend {
     const inputPtr = 0;
     const maskPtr = image.data.length;
     const outputPtr = maskPtr + mask.length;
-    this.ensureCapacity(outputPtr + image.data.length);
+    const outputLength = image.data.length;
+    this.ensureCapacity(outputPtr + outputLength);
     const heap = new Uint8Array(this.memory.buffer);
     heap.set(image.data, inputPtr);
     heap.set(mask, maskPtr);
     this.exports.rgba_apply_alpha_mask(inputPtr, maskPtr, outputPtr, pixels);
 
+    // Direct view copy — faster than heap.slice which creates intermediate ArrayBuffer
+    const result = new Uint8Array(outputLength);
+    result.set(new Uint8Array(this.memory.buffer, outputPtr, outputLength));
+
     return {
       width: image.width,
       height: image.height,
-      data: heap.slice(outputPtr, outputPtr + image.data.length),
+      data: result,
     };
   }
 

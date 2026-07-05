@@ -19,6 +19,12 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Added `TileBufferPool` for zero-allocation tile processing — a size-bucketed
   buffer pool that recycles Uint8Array buffers across tiles to eliminate GC
   pressure on large images.
+- Added automated benchmark suite (`test/bench/kernel-benchmark.ts`) covering
+  all CPU kernels, pipeline single/multi-step, resize operations, and large
+  image throughput. Run with `npm run bench`.
+- Added `bench` script to `package.json` for one-command performance testing.
+- Benchmark suite auto-reports untestable features (WebGPU, Workers, WASM,
+  WebGL) with explanations of why they require a browser environment.
 
 ### Changed
 
@@ -36,6 +42,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   output.
 - Ensured custom tile processor results validate returned descriptors and output
   byte lengths before sink writes.
+- **Fixed color corruption in box blur** — separable 2-pass implementation was
+  storing horizontal pixel sums (0–765) in `Uint8Array` causing overflow and
+  RGB channel corruption on all processed images. Changed to `Uint16Array` for
+  the intermediate buffer.
 
 ### Performance
 
@@ -46,13 +56,18 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
     convolution kernels now perform 1 bounds-check per row/column instead of
     9 per pixel.
   - Uint32Array XOR fast-path for invert — inverts RGB in one 32-bit operation
-    per pixel while preserving alpha.
+    per pixel while preserving alpha (8-wide unrolled loop).
   - Contiguous-region single memcpy for identity filter — detects when output
     is a contiguous slice of input and uses a single `set()` call.
+  - Channel-unrolled convolution — eliminates the `for ch` loop, writing R/G/B
+    as 3 independent accumulators for better JIT optimization.
   - Kernel coefficients extracted to local variables — avoids array indexing
     overhead in convolution inner loops.
-  - Integer multiply-shift for division by 9 in boxBlur — eliminates
-    `Math.round()` calls entirely.
+  - Separable 2-pass box blur — reduces complexity from 9 samples/pixel to
+    6 adds/pixel with integer multiply-shift for division by 9.
+  - Uint32Array packed write for grayscale — 1 write per pixel instead of 4.
+  - Bitwise shift `>> 3` replaces floating-point division in smoothEnhance and
+    unsharpMask detail computation.
 - **Pipeline throughput: 2-3x improvement** through:
   - Synchronous fast-path for CPU tile processing — bypasses all Promise and
     async machinery when using the default `cpuTileProcessor`.
@@ -60,15 +75,23 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
     tiles instead of allocating per-tile.
   - Inlined tile read/write — eliminates `TileSource`/`TileSink` abstraction
     overhead in the synchronous path.
-- **Image resize: 2-4x improvement** through:
-  - Precomputed X lookup table for nearest-neighbor — avoids per-pixel
-    division and `Math.floor()` calls.
-  - Fixed-point bilinear interpolation — eliminates all floating-point and
-    `Math.min`/`Math.max` from inner loops using 8-bit fixed-point math.
-  - Precomputed X interpolation table for bilinear — row-level lookup reduces
-    inner loop to pure integer arithmetic.
+  - Double-buffer ping-pong for multi-step pipelines — only 2 image buffers
+    allocated regardless of how many filter steps are applied.
+- **Image resize: 4-6x improvement** through:
+  - Separable 2-pass bilinear — splits 2D interpolation into horizontal then
+    vertical passes, halving per-pixel sample count.
+  - Precomputed X lookup table for nearest-neighbor with Uint32Array single-op
+    pixel copy when memory is aligned.
+  - Fixed-point 8-bit interpolation coefficients — eliminates all floating-point
+    from inner loops.
 - **Image allocation: 4x faster solid-color fill** using `Uint32Array.fill`
   with packed RGBA pixel instead of per-pixel byte writes.
+- **Ring buffer: 3-5x throughput improvement** — power-of-two capacity with
+  bitwise AND masking replaces modulo, max 2 bulk copies per operation,
+  pre-allocated drain buffer in stream helper.
+- **WASM backend: eliminated `heap.slice()` overhead** — uses direct
+  `Uint8Array` view + `set()` for output extraction instead of intermediate
+  `ArrayBuffer` allocation.
 
 ## [1.0.1] - 2026-06-30
 

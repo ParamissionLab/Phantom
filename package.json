@@ -76,6 +76,7 @@
     "demo:preview": "vite preview --config demo/vite.config.ts --host 127.0.0.1",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
+    "bench": "vitest bench",
     "lint": "eslint .",
     "format": "prettier --write \"**/*.{ts,js,json,md,yml,yaml}\"",
     "ci": "npm run typecheck && npm run lint && npm test && npm run build && npm run build:wasm"

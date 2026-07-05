@@ -121,7 +121,7 @@ export function resizeRawImage(
 }
 
 // ---------------------------------------------------------------------------
-// OPTIMIZED RESIZE IMPLEMENTATIONS
+// MAXIMUM PERFORMANCE RESIZE IMPLEMENTATIONS
 // ---------------------------------------------------------------------------
 
 function resizeNearest(input: RawRgbaImage, output: RawRgbaImage): void {
@@ -132,12 +132,39 @@ function resizeNearest(input: RawRgbaImage, output: RawRgbaImage): void {
   const inputData = input.data;
   const outputData = output.data;
 
-  // Precompute X lookup table — avoids repeated division in inner loop
+  // Precompute X lookup table
   const xLookup = new Uint32Array(outW);
   for (let x = 0; x < outW; x += 1) {
     xLookup[x] = Math.min(inW - 1, (x * inW / outW) | 0) * RGBA_CHANNELS;
   }
 
+  // Use Uint32Array for 4-byte pixel copy when aligned
+  const canUse32 =
+    (inputData.byteOffset % 4) === 0 &&
+    (outputData.byteOffset % 4) === 0;
+
+  if (canUse32) {
+    const inU32 = new Uint32Array(inputData.buffer, inputData.byteOffset, inW * inH);
+    const outU32 = new Uint32Array(outputData.buffer, outputData.byteOffset, outW * outH);
+    // X lookup for Uint32 (pixel index, not byte index)
+    const xLookup32 = new Uint32Array(outW);
+    for (let x = 0; x < outW; x += 1) {
+      xLookup32[x] = Math.min(inW - 1, (x * inW / outW) | 0);
+    }
+
+    for (let y = 0; y < outH; y += 1) {
+      const sourceY = Math.min(inH - 1, (y * inH / outH) | 0);
+      const sourceRowBase = sourceY * inW;
+      const targetRowBase = y * outW;
+
+      for (let x = 0; x < outW; x += 1) {
+        outU32[targetRowBase + x] = inU32[sourceRowBase + xLookup32[x]!]!;
+      }
+    }
+    return;
+  }
+
+  // Byte-level fallback
   for (let y = 0; y < outH; y += 1) {
     const sourceY = Math.min(inH - 1, (y * inH / outH) | 0);
     const sourceRowBase = sourceY * inW * RGBA_CHANNELS;
@@ -154,6 +181,11 @@ function resizeNearest(input: RawRgbaImage, output: RawRgbaImage): void {
   }
 }
 
+/**
+ * Separable bilinear resize: 2-pass (horizontal then vertical).
+ * This reduces work from O(outW × outH × 4 samples) to O(outW × inH × 2 + outW × outH × 2).
+ * For large images, this is significantly faster because each pass only interpolates in 1D.
+ */
 function resizeBilinear(input: RawRgbaImage, output: RawRgbaImage): void {
   const outW = output.width;
   const outH = output.height;
@@ -162,26 +194,55 @@ function resizeBilinear(input: RawRgbaImage, output: RawRgbaImage): void {
   const inputData = input.data;
   const outputData = output.data;
   const inStride = inW * RGBA_CHANNELS;
+  const outStride = outW * RGBA_CHANNELS;
 
   const scaleX = inW / outW;
   const scaleY = inH / outH;
   const maxXi = inW - 1;
   const maxYi = inH - 1;
 
-  // Precompute X interpolation table:
-  // For each output X, store x0 offset, x1 offset, and fx (as fixed-point 8-bit)
-  const xTable = new Uint32Array(outW * 3);
+  // Precompute X interpolation coefficients (shared across both passes)
+  const xCoeffs = new Uint32Array(outW * 3); // [x0_offset, x1_offset, fx_fixed8]
   for (let x = 0; x < outW; x += 1) {
     const srcX = Math.max(0, (x + 0.5) * scaleX - 0.5);
     const x0 = Math.min(maxXi, srcX | 0);
     const x1 = Math.min(maxXi, x0 + 1);
-    const fx = ((srcX - x0) * 256) | 0; // 8-bit fixed point fraction
+    const fx = ((srcX - x0) * 256) | 0;
     const base = x * 3;
-    xTable[base] = x0 * RGBA_CHANNELS;
-    xTable[base + 1] = x1 * RGBA_CHANNELS;
-    xTable[base + 2] = fx;
+    xCoeffs[base] = x0 * RGBA_CHANNELS;
+    xCoeffs[base + 1] = x1 * RGBA_CHANNELS;
+    xCoeffs[base + 2] = fx;
   }
 
+  // Pass 1: Horizontal interpolation — produce temp[inH × outW]
+  // Each row of temp has outW pixels, interpolated horizontally from input
+  const tempStride = outW * RGBA_CHANNELS;
+  const temp = new Uint8Array(inH * tempStride);
+
+  for (let y = 0; y < inH; y += 1) {
+    const srcRowBase = y * inStride;
+    const tmpRowBase = y * tempStride;
+
+    for (let x = 0; x < outW; x += 1) {
+      const cBase = x * 3;
+      const x0off = xCoeffs[cBase]!;
+      const x1off = xCoeffs[cBase + 1]!;
+      const fx = xCoeffs[cBase + 2]!;
+      const invFx = 256 - fx;
+
+      const si0 = srcRowBase + x0off;
+      const si1 = srcRowBase + x1off;
+      const ti = tmpRowBase + x * RGBA_CHANNELS;
+
+      // 1D horizontal lerp — channel unrolled
+      temp[ti] = (inputData[si0]! * invFx + inputData[si1]! * fx + 128) >> 8;
+      temp[ti + 1] = (inputData[si0 + 1]! * invFx + inputData[si1 + 1]! * fx + 128) >> 8;
+      temp[ti + 2] = (inputData[si0 + 2]! * invFx + inputData[si1 + 2]! * fx + 128) >> 8;
+      temp[ti + 3] = (inputData[si0 + 3]! * invFx + inputData[si1 + 3]! * fx + 128) >> 8;
+    }
+  }
+
+  // Pass 2: Vertical interpolation — read from temp[inH × outW], write to output[outH × outW]
   for (let y = 0; y < outH; y += 1) {
     const srcY = Math.max(0, (y + 0.5) * scaleY - 0.5);
     const y0 = Math.min(maxYi, srcY | 0);
@@ -189,33 +250,21 @@ function resizeBilinear(input: RawRgbaImage, output: RawRgbaImage): void {
     const fy = ((srcY - y0) * 256) | 0;
     const invFy = 256 - fy;
 
-    const row0Base = y0 * inStride;
-    const row1Base = y1 * inStride;
-    const outRowBase = y * outW * RGBA_CHANNELS;
+    const row0Base = y0 * tempStride;
+    const row1Base = y1 * tempStride;
+    const outRowBase = y * outStride;
 
     for (let x = 0; x < outW; x += 1) {
-      const xtBase = x * 3;
-      const x0off = xTable[xtBase]!;
-      const x1off = xTable[xtBase + 1]!;
-      const fx = xTable[xtBase + 2]!;
-      const invFx = 256 - fx;
+      const tOff = x * RGBA_CHANNELS;
+      const ti0 = row0Base + tOff;
+      const ti1 = row1Base + tOff;
+      const oi = outRowBase + tOff;
 
-      const i00 = row0Base + x0off;
-      const i10 = row0Base + x1off;
-      const i01 = row1Base + x0off;
-      const i11 = row1Base + x1off;
-
-      const ti = outRowBase + x * RGBA_CHANNELS;
-
-      // Bilinear interpolation using 8-bit fixed-point
-      // result = (top_left * invFx + top_right * fx) * invFy
-      //        + (bot_left * invFx + bot_right * fx) * fy
-      // All >> 16 to normalize (8-bit fx * 8-bit fy = 16-bit total shift)
-      for (let ch = 0; ch < RGBA_CHANNELS; ch += 1) {
-        const top = inputData[i00 + ch]! * invFx + inputData[i10 + ch]! * fx;
-        const bot = inputData[i01 + ch]! * invFx + inputData[i11 + ch]! * fx;
-        outputData[ti + ch] = (top * invFy + bot * fy + 32768) >> 16;
-      }
+      // 1D vertical lerp — channel unrolled
+      outputData[oi] = (temp[ti0]! * invFy + temp[ti1]! * fy + 128) >> 8;
+      outputData[oi + 1] = (temp[ti0 + 1]! * invFy + temp[ti1 + 1]! * fy + 128) >> 8;
+      outputData[oi + 2] = (temp[ti0 + 2]! * invFy + temp[ti1 + 2]! * fy + 128) >> 8;
+      outputData[oi + 3] = (temp[ti0 + 3]! * invFy + temp[ti1 + 3]! * fy + 128) >> 8;
     }
   }
 }

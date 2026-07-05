@@ -5,18 +5,27 @@ const DEFAULT_CAPACITY_BYTES = 64 * 1024 * 1024;
 /**
  * Fixed-capacity byte ring buffer for stream ingestion.
  *
+ * Optimized for maximum throughput:
+ * - Power-of-two capacity enables bitwise AND masking instead of modulo
+ * - Bulk Uint8Array.set operations for memcpy-speed transfers
+ * - Minimized branch count in hot path
+ *
  * The buffer never grows after construction. Callers decide whether to apply
  * backpressure, drop data, or fail when `availableWrite` is exhausted.
  */
 export class FixedByteRingBuffer {
   private readonly buffer: Uint8Array;
+  private readonly mask: number; // capacity - 1 for bitwise wrap
   private readOffset = 0;
   private writeOffset = 0;
   private storedBytes = 0;
 
   public constructor(capacityBytes = DEFAULT_CAPACITY_BYTES) {
     assertPositiveInteger(capacityBytes, "capacityBytes");
-    this.buffer = new Uint8Array(capacityBytes);
+    // Round up to next power of two for bitwise masking
+    const capacity = nextPow2(capacityBytes);
+    this.buffer = new Uint8Array(capacity);
+    this.mask = capacity - 1;
   }
 
   public get capacity(): number {
@@ -28,7 +37,7 @@ export class FixedByteRingBuffer {
   }
 
   public get availableWrite(): number {
-    return this.capacity - this.storedBytes;
+    return this.buffer.length - this.storedBytes;
   }
 
   public clear(): void {
@@ -43,18 +52,19 @@ export class FixedByteRingBuffer {
       return 0;
     }
 
-    this.copyIntoBuffer(source, writable);
+    this.bulkCopyIn(source, writable);
     this.storedBytes += writable;
     return writable;
   }
 
   public writeOrThrow(source: Uint8Array): void {
-    const written = this.write(source);
-    if (written !== source.length) {
+    if (source.length > this.availableWrite) {
       throw new PhantomError(
-        `Ring buffer overflow: wrote ${written} of ${source.length} bytes into ${this.capacity} byte buffer.`,
+        `Ring buffer overflow: need ${source.length} bytes but only ${this.availableWrite} available in ${this.buffer.length} byte buffer.`,
       );
     }
+    this.bulkCopyIn(source, source.length);
+    this.storedBytes += source.length;
   }
 
   public read(target: Uint8Array): number {
@@ -63,40 +73,49 @@ export class FixedByteRingBuffer {
       return 0;
     }
 
-    this.copyFromBuffer(target, readable);
+    this.bulkCopyOut(target, readable);
     this.storedBytes -= readable;
     return readable;
   }
 
-  private copyIntoBuffer(source: Uint8Array, length: number): void {
-    let copied = 0;
-    while (copied < length) {
-      const chunkLength = Math.min(
-        length - copied,
-        this.capacity - this.writeOffset,
-      );
-      this.buffer.set(
-        source.subarray(copied, copied + chunkLength),
-        this.writeOffset,
-      );
-      this.writeOffset = (this.writeOffset + chunkLength) % this.capacity;
-      copied += chunkLength;
+  /**
+   * Bulk copy into ring buffer — uses at most 2 set() calls (one per wrap).
+   * V8 optimizes Uint8Array.set to memcpy for non-overlapping regions.
+   */
+  private bulkCopyIn(source: Uint8Array, length: number): void {
+    const cap = this.buffer.length;
+    const firstChunk = cap - this.writeOffset;
+
+    if (length <= firstChunk) {
+      // No wrap — single copy
+      this.buffer.set(source.subarray(0, length), this.writeOffset);
+      this.writeOffset = (this.writeOffset + length) & this.mask;
+    } else {
+      // Wrap — two copies
+      this.buffer.set(source.subarray(0, firstChunk), this.writeOffset);
+      const remaining = length - firstChunk;
+      this.buffer.set(source.subarray(firstChunk, firstChunk + remaining), 0);
+      this.writeOffset = remaining;
     }
   }
 
-  private copyFromBuffer(target: Uint8Array, length: number): void {
-    let copied = 0;
-    while (copied < length) {
-      const chunkLength = Math.min(
-        length - copied,
-        this.capacity - this.readOffset,
-      );
-      target.set(
-        this.buffer.subarray(this.readOffset, this.readOffset + chunkLength),
-        copied,
-      );
-      this.readOffset = (this.readOffset + chunkLength) % this.capacity;
-      copied += chunkLength;
+  /**
+   * Bulk copy out of ring buffer — uses at most 2 set() calls.
+   */
+  private bulkCopyOut(target: Uint8Array, length: number): void {
+    const cap = this.buffer.length;
+    const firstChunk = cap - this.readOffset;
+
+    if (length <= firstChunk) {
+      // No wrap — single copy
+      target.set(this.buffer.subarray(this.readOffset, this.readOffset + length));
+      this.readOffset = (this.readOffset + length) & this.mask;
+    } else {
+      // Wrap — two copies
+      target.set(this.buffer.subarray(this.readOffset, this.readOffset + firstChunk));
+      const remaining = length - firstChunk;
+      target.set(this.buffer.subarray(0, remaining), firstChunk);
+      this.readOffset = remaining;
     }
   }
 }
@@ -114,6 +133,9 @@ export async function streamChunksToFixedBuffer(
   const ring = new FixedByteRingBuffer(capacityBytes);
   let totalBytes = 0;
 
+  // Pre-allocate drain buffer to avoid per-chunk allocation
+  const drainBuffer = new Uint8Array(ring.capacity);
+
   for await (const chunk of chunks) {
     signal?.throwIfAborted();
     if (chunk.length > ring.capacity) {
@@ -123,11 +145,22 @@ export async function streamChunksToFixedBuffer(
     }
 
     ring.writeOrThrow(chunk);
-    const readable = new Uint8Array(ring.availableRead);
-    const read = ring.read(readable);
+    const readable = ring.availableRead;
+    const read = ring.read(drainBuffer.subarray(0, readable));
     totalBytes += read;
-    await onChunk(readable.subarray(0, read));
+    await onChunk(drainBuffer.subarray(0, read));
   }
 
   return totalBytes;
+}
+
+function nextPow2(value: number): number {
+  if (value <= 1) return 1;
+  let v = value - 1;
+  v |= v >>> 1;
+  v |= v >>> 2;
+  v |= v >>> 4;
+  v |= v >>> 8;
+  v |= v >>> 16;
+  return v + 1;
 }
