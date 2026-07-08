@@ -157,16 +157,22 @@ function invertCore(
 
   // Uint32Array XOR fast-path: 1 operation per pixel for contiguous aligned data
   // XOR with 0x00FFFFFF (little-endian) inverts R/G/B, preserves Alpha
-  const canUse32 =
-    (input.byteOffset % 4) === 0 &&
-    (output.byteOffset % 4) === 0;
+  const canUse32 = input.byteOffset % 4 === 0 && output.byteOffset % 4 === 0;
 
   if (canUse32 && outputWidth === inputWidth && offsetX === 0) {
     const inputStart = offsetY * inputWidth * RGBA_CHANNELS;
     const pixelCount = outputWidth * outputRect.height;
-    const inputU32 = new Uint32Array(input.buffer, input.byteOffset + inputStart, pixelCount);
-    const outputU32 = new Uint32Array(output.buffer, output.byteOffset, pixelCount);
-    const xorMask = 0x00FFFFFF;
+    const inputU32 = new Uint32Array(
+      input.buffer,
+      input.byteOffset + inputStart,
+      pixelCount,
+    );
+    const outputU32 = new Uint32Array(
+      output.buffer,
+      output.byteOffset,
+      pixelCount,
+    );
+    const xorMask = 0x00ffffff;
 
     // 8-wide unroll for maximum ILP (instruction-level parallelism)
     const bulk = pixelCount & ~7;
@@ -239,17 +245,24 @@ function grayscaleCore(
   const offsetY = outputRect.y - inputRect.y;
 
   // Try Uint32Array packed write: write luma|luma|luma|alpha as single 32-bit value
-  const canUse32 = (output.byteOffset % 4) === 0;
+  const canUse32 = output.byteOffset % 4 === 0;
 
   if (canUse32 && outputWidth === inputWidth && offsetX === 0) {
     const inputStart = offsetY * inputWidth * RGBA_CHANNELS;
     const pixelCount = outputWidth * outputRect.height;
-    const outputU32 = new Uint32Array(output.buffer, output.byteOffset, pixelCount);
+    const outputU32 = new Uint32Array(
+      output.buffer,
+      output.byteOffset,
+      pixelCount,
+    );
 
     for (let i = 0; i < pixelCount; i += 1) {
       const si = inputStart + i * 4;
       const luma = clampU8(
-        (input[si]! * LUMA_R + input[si + 1]! * LUMA_G + input[si + 2]! * LUMA_B) >> FIXED_SHIFT,
+        (input[si]! * LUMA_R +
+          input[si + 1]! * LUMA_G +
+          input[si + 2]! * LUMA_B) >>
+          FIXED_SHIFT,
       );
       // Pack as little-endian: [R=luma, G=luma, B=luma, A=alpha]
       outputU32[i] = luma | (luma << 8) | (luma << 16) | (input[si + 3]! << 24);
@@ -266,7 +279,10 @@ function grayscaleCore(
       const ix = inputRowBase + x * RGBA_CHANNELS;
       const ox = outputRowBase + x * RGBA_CHANNELS;
       const luma = clampU8(
-        (input[ix]! * LUMA_R + input[ix + 1]! * LUMA_G + input[ix + 2]! * LUMA_B) >> FIXED_SHIFT,
+        (input[ix]! * LUMA_R +
+          input[ix + 1]! * LUMA_G +
+          input[ix + 2]! * LUMA_B) >>
+          FIXED_SHIFT,
       );
       output[ox] = luma;
       output[ox + 1] = luma;
@@ -318,8 +334,11 @@ function smoothEnhanceCore(
       const rBL = input[rowBelow + colLeft]!;
       const rBC = input[rowBelow + colCenter]!;
       const rBR = input[rowBelow + colRight]!;
-      const rBlur = (rTL + rTR + rBL + rBR + (rTC + rBC + rML + rMR) * 2 + rMC * 4) >> 4;
-      output[outputIndex] = clampU8(rMC + ((rMC - rBlur) * detailNumerator >> detailShift));
+      const rBlur =
+        (rTL + rTR + rBL + rBR + (rTC + rBC + rML + rMR) * 2 + rMC * 4) >> 4;
+      output[outputIndex] = clampU8(
+        rMC + (((rMC - rBlur) * detailNumerator) >> detailShift),
+      );
 
       // Green channel
       const gTL = input[rowAbove + colLeft + 1]!;
@@ -331,8 +350,11 @@ function smoothEnhanceCore(
       const gBL = input[rowBelow + colLeft + 1]!;
       const gBC = input[rowBelow + colCenter + 1]!;
       const gBR = input[rowBelow + colRight + 1]!;
-      const gBlur = (gTL + gTR + gBL + gBR + (gTC + gBC + gML + gMR) * 2 + gMC * 4) >> 4;
-      output[outputIndex + 1] = clampU8(gMC + ((gMC - gBlur) * detailNumerator >> detailShift));
+      const gBlur =
+        (gTL + gTR + gBL + gBR + (gTC + gBC + gML + gMR) * 2 + gMC * 4) >> 4;
+      output[outputIndex + 1] = clampU8(
+        gMC + (((gMC - gBlur) * detailNumerator) >> detailShift),
+      );
 
       // Blue channel
       const bTL = input[rowAbove + colLeft + 2]!;
@@ -344,8 +366,11 @@ function smoothEnhanceCore(
       const bBL = input[rowBelow + colLeft + 2]!;
       const bBC = input[rowBelow + colCenter + 2]!;
       const bBR = input[rowBelow + colRight + 2]!;
-      const bBlur = (bTL + bTR + bBL + bBR + (bTC + bBC + bML + bMR) * 2 + bMC * 4) >> 4;
-      output[outputIndex + 2] = clampU8(bMC + ((bMC - bBlur) * detailNumerator >> detailShift));
+      const bBlur =
+        (bTL + bTR + bBL + bBR + (bTC + bBC + bML + bMR) * 2 + bMC * 4) >> 4;
+      output[outputIndex + 2] = clampU8(
+        bMC + (((bMC - bBlur) * detailNumerator) >> detailShift),
+      );
 
       // Alpha passthrough
       output[outputIndex + 3] = input[rowCenter + colCenter + 3]!;
@@ -402,9 +427,18 @@ function boxBlurSeparable(
       const tBase = tempRowBase + x * RGBA_CHANNELS;
 
       // Horizontal sum (not divided yet — divide once in pass 2)
-      temp[tBase] = input[srcRowBase + colLeft]! + input[srcRowBase + colCenter]! + input[srcRowBase + colRight]!;
-      temp[tBase + 1] = input[srcRowBase + colLeft + 1]! + input[srcRowBase + colCenter + 1]! + input[srcRowBase + colRight + 1]!;
-      temp[tBase + 2] = input[srcRowBase + colLeft + 2]! + input[srcRowBase + colCenter + 2]! + input[srcRowBase + colRight + 2]!;
+      temp[tBase] =
+        input[srcRowBase + colLeft]! +
+        input[srcRowBase + colCenter]! +
+        input[srcRowBase + colRight]!;
+      temp[tBase + 1] =
+        input[srcRowBase + colLeft + 1]! +
+        input[srcRowBase + colCenter + 1]! +
+        input[srcRowBase + colRight + 1]!;
+      temp[tBase + 2] =
+        input[srcRowBase + colLeft + 2]! +
+        input[srcRowBase + colCenter + 2]! +
+        input[srcRowBase + colRight + 2]!;
       temp[tBase + 3] = input[srcRowBase + colCenter + 3]!; // alpha passthrough (fits in u16)
     }
   }
@@ -414,7 +448,7 @@ function boxBlurSeparable(
   for (let y = 0; y < outputHeight; y += 1) {
     const outRowBase = y * outputWidth * RGBA_CHANNELS;
 
-    const tempYCenter = (offsetY + y) - tempStartY;
+    const tempYCenter = offsetY + y - tempStartY;
     const tempYAbove = clampInt(tempYCenter - 1, 0, actualTempHeight - 1);
     const tempYBelow = clampInt(tempYCenter + 1, 0, actualTempHeight - 1);
     const tAboveBase = tempYAbove * tempStride;
@@ -427,9 +461,18 @@ function boxBlurSeparable(
 
       // Vertical sum of horizontal sums = full 3×3 sum (0..2295)
       // Integer divide by 9: (total * 57 + 256) >> 9 is exact for 0..2295
-      const rTotal = temp[tAboveBase + tOff]! + temp[tCenterBase + tOff]! + temp[tBelowBase + tOff]!;
-      const gTotal = temp[tAboveBase + tOff + 1]! + temp[tCenterBase + tOff + 1]! + temp[tBelowBase + tOff + 1]!;
-      const bTotal = temp[tAboveBase + tOff + 2]! + temp[tCenterBase + tOff + 2]! + temp[tBelowBase + tOff + 2]!;
+      const rTotal =
+        temp[tAboveBase + tOff]! +
+        temp[tCenterBase + tOff]! +
+        temp[tBelowBase + tOff]!;
+      const gTotal =
+        temp[tAboveBase + tOff + 1]! +
+        temp[tCenterBase + tOff + 1]! +
+        temp[tBelowBase + tOff + 1]!;
+      const bTotal =
+        temp[tAboveBase + tOff + 2]! +
+        temp[tCenterBase + tOff + 2]! +
+        temp[tBelowBase + tOff + 2]!;
 
       output[oBase] = (rTotal * 57 + 256) >> 9;
       output[oBase + 1] = (gTotal * 57 + 256) >> 9;

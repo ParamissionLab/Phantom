@@ -1,7 +1,4 @@
-import {
-  fillTransparentWith,
-  type RgbColor,
-} from "./background.js";
+import { fillTransparentWith, type RgbColor } from "./background.js";
 import {
   PhantomError,
   RGBA_CHANNELS,
@@ -10,21 +7,10 @@ import {
 } from "./types.js";
 
 export type ImageFileFormat =
-  | "png"
-  | "jpeg"
-  | "jpg"
-  | "webp"
-  | "avif"
-  | "bmp"
-  | "gif"
-  | "tiff";
+  "png" | "jpeg" | "jpg" | "webp" | "avif" | "bmp" | "gif" | "tiff";
 
 export type BrowserEncodableImageFormat =
-  | "png"
-  | "jpeg"
-  | "jpg"
-  | "webp"
-  | "avif";
+  "png" | "jpeg" | "jpg" | "webp" | "avif";
 
 export interface ImageFormatProfile {
   readonly format: ImageFileFormat;
@@ -154,9 +140,7 @@ export function normalizeImageFormat(format: string): ImageFileFormat {
   return profile.format;
 }
 
-export function getImageFormatProfile(
-  format: string,
-): ImageFormatProfile {
+export function getImageFormatProfile(format: string): ImageFormatProfile {
   const normalized = normalizeImageFormat(format);
   const profile = IMAGE_FORMATS.find((entry) => entry.format === normalized);
   if (profile === undefined) {
@@ -234,7 +218,8 @@ export async function optimizeImageFile(
     return {
       blob: inputBlob,
       format: originalFormat,
-      mimeType: inputBlob.type || getImageFormatProfile(originalFormat).mimeType,
+      mimeType:
+        inputBlob.type || getImageFormatProfile(originalFormat).mimeType,
       width: converted.width,
       height: converted.height,
       inputBytes: inputBlob.size,
@@ -258,7 +243,9 @@ function defaultQuality(format: ImageFileFormat): number | undefined {
   }
 }
 
-function inferInputFormat(input: BrowserImageInput): ImageFileFormat | undefined {
+function inferInputFormat(
+  input: BrowserImageInput,
+): ImageFileFormat | undefined {
   if (input instanceof Blob && input.type !== "") {
     return normalizeImageFormat(input.type);
   }
@@ -368,7 +355,9 @@ function rawImageToCanvas(
   return canvas;
 }
 
-function imageDataToCanvas(imageData: ImageData): HTMLCanvasElement | OffscreenCanvas {
+function imageDataToCanvas(
+  imageData: ImageData,
+): HTMLCanvasElement | OffscreenCanvas {
   const canvas = createCanvas(imageData.width, imageData.height);
   const context = canvas.getContext("2d");
   if (context === null) {

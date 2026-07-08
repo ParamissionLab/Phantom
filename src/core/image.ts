@@ -39,8 +39,7 @@ export function createRawRgbaImage(
   if (color !== undefined) {
     const rgba = normalizeRgbaColor(color);
     // Use Uint32Array for 4x faster fill with packed RGBA pixel
-    const pixel =
-      (rgba.a << 24) | (rgba.b << 16) | (rgba.g << 8) | rgba.r;
+    const pixel = (rgba.a << 24) | (rgba.b << 16) | (rgba.g << 8) | rgba.r;
     const u32 = new Uint32Array(data.buffer);
     u32.fill(pixel);
   }
@@ -135,25 +134,32 @@ function resizeNearest(input: RawRgbaImage, output: RawRgbaImage): void {
   // Precompute X lookup table
   const xLookup = new Uint32Array(outW);
   for (let x = 0; x < outW; x += 1) {
-    xLookup[x] = Math.min(inW - 1, (x * inW / outW) | 0) * RGBA_CHANNELS;
+    xLookup[x] = Math.min(inW - 1, ((x * inW) / outW) | 0) * RGBA_CHANNELS;
   }
 
   // Use Uint32Array for 4-byte pixel copy when aligned
   const canUse32 =
-    (inputData.byteOffset % 4) === 0 &&
-    (outputData.byteOffset % 4) === 0;
+    inputData.byteOffset % 4 === 0 && outputData.byteOffset % 4 === 0;
 
   if (canUse32) {
-    const inU32 = new Uint32Array(inputData.buffer, inputData.byteOffset, inW * inH);
-    const outU32 = new Uint32Array(outputData.buffer, outputData.byteOffset, outW * outH);
+    const inU32 = new Uint32Array(
+      inputData.buffer,
+      inputData.byteOffset,
+      inW * inH,
+    );
+    const outU32 = new Uint32Array(
+      outputData.buffer,
+      outputData.byteOffset,
+      outW * outH,
+    );
     // X lookup for Uint32 (pixel index, not byte index)
     const xLookup32 = new Uint32Array(outW);
     for (let x = 0; x < outW; x += 1) {
-      xLookup32[x] = Math.min(inW - 1, (x * inW / outW) | 0);
+      xLookup32[x] = Math.min(inW - 1, ((x * inW) / outW) | 0);
     }
 
     for (let y = 0; y < outH; y += 1) {
-      const sourceY = Math.min(inH - 1, (y * inH / outH) | 0);
+      const sourceY = Math.min(inH - 1, ((y * inH) / outH) | 0);
       const sourceRowBase = sourceY * inW;
       const targetRowBase = y * outW;
 
@@ -166,7 +172,7 @@ function resizeNearest(input: RawRgbaImage, output: RawRgbaImage): void {
 
   // Byte-level fallback
   for (let y = 0; y < outH; y += 1) {
-    const sourceY = Math.min(inH - 1, (y * inH / outH) | 0);
+    const sourceY = Math.min(inH - 1, ((y * inH) / outH) | 0);
     const sourceRowBase = sourceY * inW * RGBA_CHANNELS;
     const targetRowBase = y * outW * RGBA_CHANNELS;
 
@@ -236,9 +242,12 @@ function resizeBilinear(input: RawRgbaImage, output: RawRgbaImage): void {
 
       // 1D horizontal lerp — channel unrolled
       temp[ti] = (inputData[si0]! * invFx + inputData[si1]! * fx + 128) >> 8;
-      temp[ti + 1] = (inputData[si0 + 1]! * invFx + inputData[si1 + 1]! * fx + 128) >> 8;
-      temp[ti + 2] = (inputData[si0 + 2]! * invFx + inputData[si1 + 2]! * fx + 128) >> 8;
-      temp[ti + 3] = (inputData[si0 + 3]! * invFx + inputData[si1 + 3]! * fx + 128) >> 8;
+      temp[ti + 1] =
+        (inputData[si0 + 1]! * invFx + inputData[si1 + 1]! * fx + 128) >> 8;
+      temp[ti + 2] =
+        (inputData[si0 + 2]! * invFx + inputData[si1 + 2]! * fx + 128) >> 8;
+      temp[ti + 3] =
+        (inputData[si0 + 3]! * invFx + inputData[si1 + 3]! * fx + 128) >> 8;
     }
   }
 
@@ -262,9 +271,12 @@ function resizeBilinear(input: RawRgbaImage, output: RawRgbaImage): void {
 
       // 1D vertical lerp — channel unrolled
       outputData[oi] = (temp[ti0]! * invFy + temp[ti1]! * fy + 128) >> 8;
-      outputData[oi + 1] = (temp[ti0 + 1]! * invFy + temp[ti1 + 1]! * fy + 128) >> 8;
-      outputData[oi + 2] = (temp[ti0 + 2]! * invFy + temp[ti1 + 2]! * fy + 128) >> 8;
-      outputData[oi + 3] = (temp[ti0 + 3]! * invFy + temp[ti1 + 3]! * fy + 128) >> 8;
+      outputData[oi + 1] =
+        (temp[ti0 + 1]! * invFy + temp[ti1 + 1]! * fy + 128) >> 8;
+      outputData[oi + 2] =
+        (temp[ti0 + 2]! * invFy + temp[ti1 + 2]! * fy + 128) >> 8;
+      outputData[oi + 3] =
+        (temp[ti0 + 3]! * invFy + temp[ti1 + 3]! * fy + 128) >> 8;
     }
   }
 }

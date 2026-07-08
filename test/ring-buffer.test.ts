@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  FixedByteRingBuffer,
-  pipeChunksToBuffer,
-} from "../src/index.js";
+import { FixedByteRingBuffer, pipeChunksToBuffer } from "../src/index.js";
 
 describe("FixedByteRingBuffer", () => {
   it("writes and reads bytes without growing", () => {

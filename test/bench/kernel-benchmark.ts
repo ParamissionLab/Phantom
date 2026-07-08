@@ -184,23 +184,43 @@ describe("Resize: resizeRawImage", () => {
   });
 
   bench("bilinear 1024→512", () => {
-    resizeRawImage(img1024, { width: 512, height: 512 }, { method: "bilinear" });
+    resizeRawImage(
+      img1024,
+      { width: 512, height: 512 },
+      { method: "bilinear" },
+    );
   });
 
   bench("nearest 512→2048 (upscale)", () => {
-    resizeRawImage(img512, { width: 2048, height: 2048 }, { method: "nearest" });
+    resizeRawImage(
+      img512,
+      { width: 2048, height: 2048 },
+      { method: "nearest" },
+    );
   });
 
   bench("bilinear 512→2048 (upscale)", () => {
-    resizeRawImage(img512, { width: 2048, height: 2048 }, { method: "bilinear" });
+    resizeRawImage(
+      img512,
+      { width: 2048, height: 2048 },
+      { method: "bilinear" },
+    );
   });
 
   bench("nearest 1024→1920×1080", () => {
-    resizeRawImage(img1024, { width: 1920, height: 1080 }, { method: "nearest" });
+    resizeRawImage(
+      img1024,
+      { width: 1920, height: 1080 },
+      { method: "nearest" },
+    );
   });
 
   bench("bilinear 1024→1920×1080", () => {
-    resizeRawImage(img1024, { width: 1920, height: 1080 }, { method: "bilinear" });
+    resizeRawImage(
+      img1024,
+      { width: 1920, height: 1080 },
+      { method: "bilinear" },
+    );
   });
 });
 

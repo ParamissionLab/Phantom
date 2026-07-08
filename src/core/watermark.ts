@@ -62,7 +62,10 @@ export function applyTextWatermark(
   const tileMode = options.tileMode ?? "none";
   const tileSpacing = options.tileSpacing ?? 200;
 
-  if (typeof document === "undefined" || typeof HTMLCanvasElement === "undefined") {
+  if (
+    typeof document === "undefined" ||
+    typeof HTMLCanvasElement === "undefined"
+  ) {
     throw new PhantomError("applyTextWatermark requires a browser Canvas API.");
   }
 
@@ -76,7 +79,11 @@ export function applyTextWatermark(
   }
 
   // Draw source image
-  const imageData = new ImageData(new Uint8ClampedArray(image.data), image.width, image.height);
+  const imageData = new ImageData(
+    new Uint8ClampedArray(image.data),
+    image.width,
+    image.height,
+  );
   ctx.putImageData(imageData, 0, 0);
 
   // Configure watermark style
@@ -108,7 +115,14 @@ export function applyTextWatermark(
     }
   } else {
     // Positioned watermark
-    const [x, y] = resolvePosition(position, image.width, image.height, textWidth, textHeight, margin);
+    const [x, y] = resolvePosition(
+      position,
+      image.width,
+      image.height,
+      textWidth,
+      textHeight,
+      margin,
+    );
     ctx.translate(x, y);
     ctx.rotate((rotation * Math.PI) / 180);
     ctx.fillText(options.text, 0, 0);
@@ -171,7 +185,10 @@ function assertWatermarkOptions(options: TextWatermarkOptions): void {
   if (!options.text || options.text.trim().length === 0) {
     throw new PhantomError("Watermark text must not be empty.");
   }
-  if (options.opacity !== undefined && (options.opacity < 0 || options.opacity > 1)) {
+  if (
+    options.opacity !== undefined &&
+    (options.opacity < 0 || options.opacity > 1)
+  ) {
     throw new PhantomError("opacity must be between 0.0 and 1.0.");
   }
   if (options.margin !== undefined && options.margin < 0) {

@@ -60,7 +60,8 @@ export async function processRawImageWithStats(
 
   const { tileSize, overlap, filter } = resolveProcessOptions(options);
   // Precedence: explicit option → registered global processor → CPU baseline
-  const tileProcessor = options.tileProcessor ?? getRegisteredProcessor() ?? cpuTileProcessor;
+  const tileProcessor =
+    options.tileProcessor ?? getRegisteredProcessor() ?? cpuTileProcessor;
 
   const output: RawRgbaImage = {
     width: input.width,
@@ -73,7 +74,14 @@ export async function processRawImageWithStats(
     tileProcessor === cpuTileProcessor || tileProcessor.id === "cpu";
 
   if (isSyncProcessor && !options.signal) {
-    const stats = processRawImageSync(input, output, tileSize, overlap, filter, options);
+    const stats = processRawImageSync(
+      input,
+      output,
+      tileSize,
+      overlap,
+      filter,
+      options,
+    );
     return { image: output, stats };
   }
 
@@ -127,7 +135,11 @@ function processRawImageSync(
     const descriptor = tiles[i]!;
 
     // Read source tile into pooled buffer (zero-copy row extraction)
-    const inputBytes = readTileIntoBuffer(input, descriptor.input, sourceBuffer);
+    const inputBytes = readTileIntoBuffer(
+      input,
+      descriptor.input,
+      sourceBuffer,
+    );
 
     // Process tile synchronously
     const result = applyFilterToTile(
@@ -199,7 +211,10 @@ function writeTileToOutput(
   for (let row = 0; row < rect.height; row += 1) {
     const targetStart = ((rect.y + row) * image.width + rect.x) * RGBA_CHANNELS;
     const sourceStart = row * rowBytes;
-    image.data.set(data.subarray(sourceStart, sourceStart + rowBytes), targetStart);
+    image.data.set(
+      data.subarray(sourceStart, sourceStart + rowBytes),
+      targetStart,
+    );
   }
 }
 
@@ -240,7 +255,9 @@ export async function processRawImagePipeline(
   // First step reads from input, writes to bufA
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   const firstStep = steps[0]!;
-  const firstOptions = resolveProcessOptions(mergeStepOptions(options, firstStep));
+  const firstOptions = resolveProcessOptions(
+    mergeStepOptions(options, firstStep),
+  );
   const firstTiles = planTiles({
     width: input.width,
     height: input.height,
@@ -269,7 +286,7 @@ export async function processRawImagePipeline(
   }
 
   // Return whichever buffer has the final result
-  return (steps.length % 2 === 1) ? bufA : bufB;
+  return steps.length % 2 === 1 ? bufA : bufB;
 }
 
 /**
@@ -294,7 +311,11 @@ function processImageTilesSync(
   for (let i = 0; i < tiles.length; i += 1) {
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const descriptor = tiles[i]!;
-    const inputBytes = readTileIntoBuffer(input, descriptor.input, sourceBuffer);
+    const inputBytes = readTileIntoBuffer(
+      input,
+      descriptor.input,
+      sourceBuffer,
+    );
     const result = applyFilterToTile(
       { descriptor, rgba: sourceBuffer.subarray(0, inputBytes) },
       filter,
@@ -328,7 +349,8 @@ export async function processTileSourceWithStats(
 ): Promise<ProcessStats> {
   const { tileSize, overlap, filter } = resolveProcessOptions(options);
   // Precedence: explicit option → registered global processor → CPU baseline
-  const tileProcessor = options.tileProcessor ?? getRegisteredProcessor() ?? cpuTileProcessor;
+  const tileProcessor =
+    options.tileProcessor ?? getRegisteredProcessor() ?? cpuTileProcessor;
   const tiles = planTiles({
     width: dimensions.width,
     height: dimensions.height,
@@ -511,7 +533,5 @@ function mergeStepOptions(
 }
 
 function nowMs(): number {
-  return typeof performance !== "undefined"
-    ? performance.now()
-    : Date.now();
+  return typeof performance !== "undefined" ? performance.now() : Date.now();
 }

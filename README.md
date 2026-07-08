@@ -20,8 +20,10 @@ and AI background-removal paths.
 - [Package entry points](#package-entry-points)
 - [Default API](#default-api)
 - [Raw RGBA utilities](#raw-rgba-utilities)
+- [Streaming ingestion](#streaming-ingestion)
 - [Filters and tile processing](#filters-and-tile-processing)
 - [Masks and background replacement](#masks-and-background-replacement)
+- [Image adjustments, watermarks, and analysis](#image-adjustments-watermarks-and-analysis)
 - [Image conversion and optimization](#image-conversion-and-optimization)
 - [AI background removal](#ai-background-removal)
 - [Asset planning](#asset-planning)
@@ -205,7 +207,7 @@ WASM paths should match the CPU behavior for the same filter and tile region.
 | `@paramission-lab/phantom`                     | Core facade, raw RGBA utilities, filters, masks, planning, pipeline APIs, and re-exported optional helpers |
 | `@paramission-lab/phantom/ai`                  | Browser AI background-removal facade                                                                       |
 | `@paramission-lab/phantom/gpu`                 | WebGPU compute, WebGPU renderer, WebGL renderer, and capability detection                                  |
-| `@paramission-lab/phantom/wasm`                | WASM loader (Zig-compiled) and kernel adapter types                                    |
+| `@paramission-lab/phantom/wasm`                | WASM loader (Zig-compiled) and kernel adapter types                                                        |
 | `@paramission-lab/phantom/workers`             | `TileWorkerPool` and `SharedTileBuffer`                                                                    |
 | `@paramission-lab/phantom/worker`              | Short browser worker module path for `TileWorkerPool`                                                      |
 | `@paramission-lab/phantom/workers/tile-worker` | Long-form alias for the same worker module                                                                 |
@@ -231,8 +233,14 @@ import phantom from "@paramission-lab/phantom";
 | `applyFilters(image, filters, options?)`      | Apply multiple filters in order                               |
 | `applyMask(image, mask, options?)`            | Apply a provider-generated alpha mask                         |
 | `replaceBackground(image, color)`             | Flatten transparent pixels onto a solid RGB color             |
+| `adjustImage(image, options)`                 | Apply tone and color adjustments to a raw RGBA image          |
+| `watermarkImage(image, options)`              | Burn a text watermark onto a raw RGBA image                   |
+| `analyzeImage(image)`                         | Compute RGB/luminance histograms for an image                 |
+| `autoAdjustImage(image)`                      | Suggest brightness/contrast based on histogram analysis       |
 | `createAssetPlan(image, options?)`            | Create a processing and encoding recipe                       |
-| `useWasm()`                                   | Auto-resolve and initialize `phantom_kernel.wasm`            |
+| `configureWasm(source)`                       | Load WASM kernel and register it globally                     |
+| `useWasm()`                                   | Auto-resolve and initialize `phantom_kernel.wasm`             |
+| `isWasmReady()`                               | Check if the global WASM tile processor is registered         |
 | `convertImage(input, options?)`               | Convert browser image inputs through canvas encoding          |
 | `optimizeImage(input, options?)`              | Re-encode browser images with conservative defaults           |
 
@@ -241,16 +249,18 @@ import phantom from "@paramission-lab/phantom";
 `phantom.edit(image)` accepts a `RawRgbaImage` or `Promise<RawRgbaImage>` and
 returns a chainable pipeline.
 
-| Method                            | Description                                        |
-| --------------------------------- | -------------------------------------------------- |
-| `crop(rect)`                      | Crop with `{ x, y, width, height }`                |
-| `resize(width, height, options?)` | Resize with `bilinear` or `nearest`                |
-| `filter(filter?, options?)`       | Apply one filter, defaulting to `smoothEnhance`    |
-| `filters(filters, options?)`      | Apply multiple filters in order                    |
-| `mask(mask, options?)`            | Apply an alpha mask with refinement                |
-| `background(color)`               | Replace transparency with a solid color            |
-| `plan(options?)`                  | Resolve a `PhantomAssetPlan` for the current image |
-| `run()`                           | Resolve the edited `RawRgbaImage`                  |
+| Method                            | Description                                                     |
+| --------------------------------- | --------------------------------------------------------------- |
+| `crop(rect)`                      | Crop with `{ x, y, width, height }`                             |
+| `resize(width, height, options?)` | Resize with `bilinear` or `nearest`                             |
+| `filter(filter?, options?)`       | Apply one filter, defaulting to `smoothEnhance`                 |
+| `filters(filters, options?)`      | Apply multiple filters in order                                 |
+| `mask(mask, options?)`            | Apply an alpha mask with refinement                             |
+| `background(color)`               | Replace transparency with a solid color                         |
+| `adjust(options)`                 | Apply brightness, contrast, saturation, temperature, hue, gamma |
+| `watermark(options)`              | Burn a text watermark into the image                            |
+| `plan(options?)`                  | Resolve a `PhantomAssetPlan` for the current image              |
+| `run()`                           | Resolve the edited `RawRgbaImage`                               |
 
 Example:
 
@@ -263,6 +273,8 @@ const output = await phantom
     tileSize: 512,
     onProgress: ({ percent }) => console.log(percent.toFixed(0)),
   })
+  .adjust({ brightness: 10, contrast: 15, saturation: 5 })
+  .watermark({ text: "CONFIDENTIAL", position: "bottom-right", opacity: 0.5 })
   .background({ r: 255, g: 255, b: 255 })
   .run();
 ```
@@ -287,6 +299,48 @@ import {
 
 `resizeImage(image, width, height, options?)` is the compact facade signature for
 `resizeRawImage()`.
+
+## Streaming Ingestion
+
+Phantom provides a fixed-capacity byte ring buffer for low-overhead stream ingestion, allowing you to ingest large chunks of pixel data without dynamic heap growth or garbage collection spikes.
+
+```ts
+import {
+  FixedByteRingBuffer,
+  pipeChunksToBuffer,
+} from "@paramission-lab/phantom";
+```
+
+### FixedByteRingBuffer
+
+Use `FixedByteRingBuffer` when you need a power-of-two aligned circular buffer for incoming streams:
+
+```ts
+// Allocate a 1MB circular buffer (it rounds up to the next power of two)
+const ring = new FixedByteRingBuffer(1024 * 1024);
+
+// Write bytes
+const bytesWritten = ring.write(incomingUint8Array);
+
+// Read bytes
+const out = new Uint8Array(2048);
+const bytesRead = ring.read(out);
+```
+
+### pipeChunksToBuffer
+
+Use `pipeChunksToBuffer` to consume sync or async iterables of raw bytes and trigger a callback with a bounded memory footprint:
+
+```ts
+const totalBytes = await pipeChunksToBuffer(
+  asyncChunksIterable,
+  (chunk) => {
+    // Process the chunk (e.g., feed to a decoder)
+    console.log("Chunk received:", chunk.length);
+  },
+  64 * 1024 * 1024, // 64MB buffer capacity limit
+);
+```
 
 ## Filters and Tile Processing
 
@@ -390,6 +444,25 @@ lengths, returned tile descriptors, and output byte lengths before writing to
 the sink, so backend failures surface as `PhantomError` instead of silent output
 corruption.
 
+### Tile Buffer Pool
+
+To eliminate garbage collection spikes on large images with thousands of tiles, Phantom includes a bucketed `TileBufferPool` that recycles `Uint8Array` buffers by size bucket:
+
+```ts
+import { TileBufferPool } from "@paramission-lab/phantom";
+
+const pool = new TileBufferPool();
+
+// Acquire a buffer of at least 1MB
+const buffer = pool.acquire(1024 * 1024);
+
+// Always use subarray for the working range as pool buffers can be larger than requested
+const view = buffer.subarray(0, 1024 * 1024);
+
+// Release the buffer back to the pool once done
+pool.release(buffer);
+```
+
 ### Custom Sources and Sinks
 
 Use `TileSource` and `TileSink` when integrating your own decoder, storage
@@ -473,6 +546,71 @@ const jpegReady = fillTransparentWith(cutout, {
   g: 255,
   b: 255,
 });
+```
+
+## Image Adjustments, Watermarks, and Analysis
+
+Phantom supports direct color adjustments, watermark overlays, and color histograms for image analysis.
+
+```ts
+import phantom, {
+  adjustImage,
+  watermarkImage,
+  analyzeImage,
+  autoAdjustImage,
+} from "@paramission-lab/phantom";
+```
+
+### Tone and Color Adjustments
+
+You can adjust brightness, contrast, saturation, temperature, hue, and gamma. All operations are processed in a single fast pass using precomputed look-up tables (LUTs) with alpha preserved.
+
+```ts
+const adjusted = adjustImage(image, {
+  brightness: 10, // -100 to +100
+  contrast: 15, // -100 to +100
+  saturation: -20, // -100 to +100 (-100 is grayscale)
+  temperature: 5, // -100 (cool) to +100 (warm)
+  hue: 45, // -180 to +180 degrees
+  gamma: 1.2, // 0.1 to 5.0
+});
+```
+
+### Text Watermark
+
+Burn text watermarks into the raw RGBA buffer using the browser Canvas API.
+
+```ts
+const result = watermarkImage(image, {
+  text: "© 2026 Paramission Lab",
+  font: "bold 24px Inter, sans-serif",
+  color: "rgba(255, 255, 255, 0.8)",
+  position: "bottom-right", // presets like 'center', 'top-left', 'bottom-right'
+  margin: 24,
+  opacity: 0.8,
+  rotation: -15, // clockwise degrees rotation
+});
+
+// Access the result image
+const watermarkedImage = result.image;
+```
+
+### Histogram Analysis & Auto-Adjust
+
+Compute color channel histograms or get recommended adjustments based on luminance levels:
+
+```ts
+// Get full RGB + luminance histogram arrays
+const histogram = analyzeImage(image);
+console.log(histogram.r, histogram.g, histogram.b, histogram.luminance);
+
+// Get suggested brightness & contrast adjustments
+const suggestions = autoAdjustImage(image);
+console.log(
+  "Suggested adjustments:",
+  suggestions.brightness,
+  suggestions.contrast,
+);
 ```
 
 ## Image Conversion and Optimization
@@ -635,6 +773,27 @@ Goals:
 The plan also reports `pixels`, `rgbaBytes`, transparency, processing estimates,
 selected `tileSize`, required `overlap`, and encoder options.
 
+For advanced use cases where you do not have the image allocated yet (e.g. you only know its dimensions), you can retrieve tiling and memory stats using `getProcessingPlan`:
+
+```ts
+import { getProcessingPlan } from "@paramission-lab/phantom";
+
+const stats = getProcessingPlan(
+  { width: 32000, height: 32000 },
+  {
+    tileSize: 2048,
+    overlap: 1,
+    filter: "smoothEnhance",
+    workerLanes: 4, // Number of concurrent worker lanes
+  },
+);
+
+console.log(stats.tileCount); // e.g. 256 tiles
+console.log(stats.peakTileBytes); // Peak memory for one tile
+console.log(stats.estimatedScratchBytes); // Total peak scratch memory across worker lanes
+console.log(stats.memoryReductionRatio); // e.g. 150x reduction
+```
+
 ## Workers
 
 Use `TileWorkerPool` in browser apps that can run module workers:
@@ -738,6 +897,17 @@ await useWasm();
 // phantom_kernel.wasm resolved automatically relative to the module
 ```
 
+For custom paths, use `configureWasm()` to register the WASM kernel as the global tile processor:
+
+```ts
+import { configureWasm } from "@paramission-lab/phantom";
+
+// Pass a URL, path string, or BufferSource containing phantom_kernel.wasm
+await configureWasm("/my-assets/phantom_kernel.wasm");
+```
+
+After calling `useWasm()` or `configureWasm()`, all subsequent high-level phantom calls (e.g. `applyFilter`, `applyFilters`, `.run()`, or `processTileSource`) that do not supply their own custom `tileProcessor` will route through the WASM kernel automatically. You can check if the WASM processor is currently registered using `isWasmReady()`.
+
 ## Error Handling
 
 Use `PhantomError` for SDK validation and backend failures:
@@ -774,7 +944,7 @@ Common validation failures:
 | Decoder or caller      | Provides source pixels from browser, Node.js, or a custom decoder |
 | `TileSource`           | Reads bounded rectangular RGBA regions                            |
 | Tile planner           | Splits the image into overlap-safe tile descriptors               |
-| `TileProcessor`        | Executes one tile on CPU, WASM, or another backend            |
+| `TileProcessor`        | Executes one tile on CPU, WASM, or another backend                |
 | CPU kernels            | Provide deterministic filter behavior                             |
 | Worker pool            | Runs transferable tile jobs off the browser main thread           |
 | WASM backend (Zig)     | Runs compiled kernels from `phantom_kernel.wasm`                  |
@@ -806,13 +976,16 @@ Useful scripts:
 | Command                 | Purpose                                                            |
 | ----------------------- | ------------------------------------------------------------------ |
 | `npm test`              | Run Vitest tests                                                   |
+| `npm run bench`         | Run Vitest performance benchmarks                                  |
 | `npm run typecheck`     | Run TypeScript strict checks                                       |
 | `npm run lint`          | Run ESLint                                                         |
+| `npm run format`        | Run Prettier code formatting on the codebase                       |
 | `npm run build`         | Emit TypeScript build artifacts to `dist/`                         |
 | `npm run build:wasm`    | Compile `zig/src/phantom-kernel.zig` to `dist/phantom_kernel.wasm` |
 | `npm run demo:build`    | Build the demo app to `demo-dist/`                                 |
-| `npm run dev`           | Run the demo app locally                                           |
-| `npm run ci`            | Run typecheck, lint, tests, TypeScript build, and WASM build (Zig)   |
+| `npm run demo:preview`  | Preview the built demo app locally                                 |
+| `npm run dev`           | Run the demo app locally in development mode                       |
+| `npm run ci`            | Run typecheck, lint, tests, TypeScript build, and WASM build (Zig) |
 | `npm run release:patch` | Bump package patch version                                         |
 | `npm run release:minor` | Bump package minor version                                         |
 | `npm run release:major` | Bump package major version                                         |

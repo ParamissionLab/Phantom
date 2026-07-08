@@ -37,8 +37,16 @@ import {
   type TileProcessor,
 } from "./types.js";
 import { adjustRawImage, type ImageAdjustOptions } from "./adjust.js";
-import { applyTextWatermark, type TextWatermarkOptions, type WatermarkResult } from "./watermark.js";
-import { computeHistogram, suggestAutoAdjust, type ImageHistogram } from "./histogram.js";
+import {
+  applyTextWatermark,
+  type TextWatermarkOptions,
+  type WatermarkResult,
+} from "./watermark.js";
+import {
+  computeHistogram,
+  suggestAutoAdjust,
+  type ImageHistogram,
+} from "./histogram.js";
 import {
   registerProcessor,
   getRegisteredProcessor,
@@ -196,12 +204,12 @@ export function analyzeImage(image: RawRgbaImage): ImageHistogram {
 /**
  * Returns suggested brightness/contrast adjustments based on histogram analysis.
  */
-export function autoAdjustImage(
-  image: RawRgbaImage,
-): { brightness: number; contrast: number } {
+export function autoAdjustImage(image: RawRgbaImage): {
+  brightness: number;
+  contrast: number;
+} {
   return suggestAutoAdjust(computeHistogram(image));
 }
-
 
 /**
  * Converts browser image inputs between common web image formats.
@@ -267,9 +275,8 @@ export async function configureWasm(
   // ── Start a new init ─────────────────────────────────────────────────────
   const init = (async (): Promise<void> => {
     // Lazy-import — WASM code is never bundled unless configureWasm() runs.
-    const { instantiateWasmBackend, createWasmTileProcessor } = await import(
-      "../wasm/zig-backend.js"
-    );
+    const { instantiateWasmBackend, createWasmTileProcessor } =
+      await import("../wasm/zig-backend.js");
 
     // Resolve bytes from any source type without requiring the caller to know
     // which API to use.
@@ -327,8 +334,8 @@ export async function useWasm(): Promise<void> {
   if (url === null) {
     throw new Error(
       `configureWasmAuto: cannot resolve phantom_kernel.wasm automatically ` +
-      `in this environment (import.meta.url is unavailable).\n` +
-      `Use the explicit form instead: await configureWasm("/path/to/phantom_kernel.wasm");`,
+        `in this environment (import.meta.url is unavailable).\n` +
+        `Use the explicit form instead: await configureWasm("/path/to/phantom_kernel.wasm");`,
     );
   }
   return configureWasm(url);

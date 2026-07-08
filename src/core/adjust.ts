@@ -2,7 +2,12 @@
 // ^ Disabled for this file: all typed-array indices are pre-validated bounds
 // within assertRgbaLength + the loop stride. Using ?? 0 would add branches
 // per pixel in hot LUT and HSL loops.
-import { PhantomError, RGBA_CHANNELS, type RawRgbaImage, assertRgbaLength } from "./types.js";
+import {
+  PhantomError,
+  RGBA_CHANNELS,
+  type RawRgbaImage,
+  assertRgbaLength,
+} from "./types.js";
 import { clampU8 } from "./fixed-point.js";
 
 /**
@@ -57,7 +62,11 @@ export function adjustRawImage(
     hue === 0 &&
     gamma === 1.0
   ) {
-    return { width: image.width, height: image.height, data: new Uint8Array(image.data) };
+    return {
+      width: image.width,
+      height: image.height,
+      data: new Uint8Array(image.data),
+    };
   }
 
   // Build per-channel 256-entry LUTs for brightness/contrast/gamma (no hue/sat — those need HSL)
@@ -65,10 +74,13 @@ export function adjustRawImage(
 
   // LUTs: brightnessContrast + temperature applied per-channel
   const brightnessShift = Math.round((brightness / 100) * 127);
-  const contrastFactor = contrast === 0 ? 1.0 : contrast > 0
-    ? 1 + contrast / 100 * 2   // positive: 1..3
-    : 1 + contrast / 100;      // negative: 0..1
-  const tempR = Math.round((temperature / 100) * 30);  // warm adds red
+  const contrastFactor =
+    contrast === 0
+      ? 1.0
+      : contrast > 0
+        ? 1 + (contrast / 100) * 2 // positive: 1..3
+        : 1 + contrast / 100; // negative: 0..1
+  const tempR = Math.round((temperature / 100) * 30); // warm adds red
   const tempB = Math.round((-temperature / 100) * 30); // warm removes blue
 
   const lutR = buildLut(brightnessShift + tempR, contrastFactor, gamma);
@@ -96,7 +108,7 @@ export function adjustRawImage(
       const b = image.data[i + 2]! / 255;
 
       const [h, s, l] = rgbToHsl(r, g, b);
-      const newH = ((h + hueRad / (2 * Math.PI)) % 1 + 1) % 1;
+      const newH = (((h + hueRad / (2 * Math.PI)) % 1) + 1) % 1;
       const newS = Math.min(1, Math.max(0, s * satScale));
       const [nr, ng, nb] = hslToRgb(newH, newS, l);
 
@@ -114,7 +126,11 @@ export function adjustRawImage(
 // LUT builder
 // ---------------------------------------------------------------------------
 
-function buildLut(brightnessShift: number, contrastFactor: number, gamma: number): Uint8Array {
+function buildLut(
+  brightnessShift: number,
+  contrastFactor: number,
+  gamma: number,
+): Uint8Array {
   const lut = new Uint8Array(256);
   for (let i = 0; i < 256; i += 1) {
     let v = i / 255;
@@ -187,22 +203,37 @@ function hueToRgbChannel(p: number, q: number, t: number): number {
 // ---------------------------------------------------------------------------
 
 function assertAdjustOptions(options: ImageAdjustOptions): void {
-  if (options.brightness !== undefined && (options.brightness < -100 || options.brightness > 100)) {
+  if (
+    options.brightness !== undefined &&
+    (options.brightness < -100 || options.brightness > 100)
+  ) {
     throw new PhantomError("brightness must be between -100 and 100.");
   }
-  if (options.contrast !== undefined && (options.contrast < -100 || options.contrast > 100)) {
+  if (
+    options.contrast !== undefined &&
+    (options.contrast < -100 || options.contrast > 100)
+  ) {
     throw new PhantomError("contrast must be between -100 and 100.");
   }
-  if (options.saturation !== undefined && (options.saturation < -100 || options.saturation > 100)) {
+  if (
+    options.saturation !== undefined &&
+    (options.saturation < -100 || options.saturation > 100)
+  ) {
     throw new PhantomError("saturation must be between -100 and 100.");
   }
-  if (options.temperature !== undefined && (options.temperature < -100 || options.temperature > 100)) {
+  if (
+    options.temperature !== undefined &&
+    (options.temperature < -100 || options.temperature > 100)
+  ) {
     throw new PhantomError("temperature must be between -100 and 100.");
   }
   if (options.hue !== undefined && (options.hue < -180 || options.hue > 180)) {
     throw new PhantomError("hue must be between -180 and 180 degrees.");
   }
-  if (options.gamma !== undefined && (options.gamma < 0.1 || options.gamma > 5.0)) {
+  if (
+    options.gamma !== undefined &&
+    (options.gamma < 0.1 || options.gamma > 5.0)
+  ) {
     throw new PhantomError("gamma must be between 0.1 and 5.0.");
   }
 }

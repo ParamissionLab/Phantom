@@ -215,8 +215,7 @@ export function createAiRemover(
 export function normalizeAiMaskOptions(
   options: AiBackgroundRemovalOptions = {},
 ): AlphaMaskRefinementOptions {
-  const maskCutoff =
-    options.maskCutoff ?? AI_BACKGROUND_DEFAULTS.maskCutoff;
+  const maskCutoff = options.maskCutoff ?? AI_BACKGROUND_DEFAULTS.maskCutoff;
   const subjectGuard =
     options.subjectGuard ?? AI_BACKGROUND_DEFAULTS.subjectGuard;
 

@@ -108,11 +108,15 @@ export class FixedByteRingBuffer {
 
     if (length <= firstChunk) {
       // No wrap — single copy
-      target.set(this.buffer.subarray(this.readOffset, this.readOffset + length));
+      target.set(
+        this.buffer.subarray(this.readOffset, this.readOffset + length),
+      );
       this.readOffset = (this.readOffset + length) & this.mask;
     } else {
       // Wrap — two copies
-      target.set(this.buffer.subarray(this.readOffset, this.readOffset + firstChunk));
+      target.set(
+        this.buffer.subarray(this.readOffset, this.readOffset + firstChunk),
+      );
       const remaining = length - firstChunk;
       target.set(this.buffer.subarray(0, remaining), firstChunk);
       this.readOffset = remaining;

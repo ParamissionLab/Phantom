@@ -13,10 +13,7 @@ import {
 import type { ImageFileFormat, ImageEncodeOptions } from "./image-codecs.js";
 
 export type PhantomAssetGoal =
-  | "delivery"
-  | "archive"
-  | "preview"
-  | "transparent-cutout";
+  "delivery" | "archive" | "preview" | "transparent-cutout";
 
 export interface PhantomAssetPlanOptions {
   readonly goal?: PhantomAssetGoal;

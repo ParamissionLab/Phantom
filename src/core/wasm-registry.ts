@@ -109,7 +109,9 @@ export function resolveKernelUrl(): URL | null {
  * If none of those are available the function throws a descriptive error that
  * tells the caller exactly how to provide the bytes themselves instead.
  */
-export async function loadWasmBytes(source: string | URL): Promise<ArrayBuffer> {
+export async function loadWasmBytes(
+  source: string | URL,
+): Promise<ArrayBuffer> {
   // ── 1. fetch (browsers + Node ≥ 18 + Deno + Bun + React Native with fetch polyfill) ──
   if (typeof globalThis.fetch === "function") {
     const url = source instanceof URL ? source.href : source;
@@ -119,14 +121,14 @@ export async function loadWasmBytes(source: string | URL): Promise<ArrayBuffer> 
     } catch (err: unknown) {
       throw new Error(
         `configureWasm: fetch("${url}") failed — ${String(err)}.\n` +
-        `Pass an ArrayBuffer instead: await configureWasm(await fs.readFile(path));`,
+          `Pass an ArrayBuffer instead: await configureWasm(await fs.readFile(path));`,
         { cause: err },
       );
     }
     if (!response.ok) {
       throw new Error(
         `configureWasm: fetch("${url}") returned HTTP ${response.status}.\n` +
-        `Pass an ArrayBuffer instead: await configureWasm(await fs.readFile(path));`,
+          `Pass an ArrayBuffer instead: await configureWasm(await fs.readFile(path));`,
       );
     }
     return response.arrayBuffer();
@@ -135,14 +137,20 @@ export async function loadWasmBytes(source: string | URL): Promise<ArrayBuffer> 
   // ── 2. Node < 18 ESM: dynamic import of node:fs/promises ──
   const pathStr = source instanceof URL ? source.pathname : source;
 
-  if (typeof process !== "undefined" && typeof process.versions?.node === "string") {
+  if (
+    typeof process !== "undefined" &&
+    typeof process.versions?.node === "string"
+  ) {
     // Try ESM-style dynamic import first (works in Node 12+ with --experimental-vm-modules)
     try {
       const fsPromises = (await import("node:fs/promises")) as {
         readFile: (this: void, path: string) => Promise<Buffer>;
       };
       const buf = await fsPromises.readFile(pathStr);
-      return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+      return buf.buffer.slice(
+        buf.byteOffset,
+        buf.byteOffset + buf.byteLength,
+      ) as ArrayBuffer;
     } catch {
       // Fall through to synchronous fs for very old Node
     }
@@ -153,7 +161,10 @@ export async function loadWasmBytes(source: string | URL): Promise<ArrayBuffer> 
         readFileSync: (this: void, path: string) => Buffer;
       };
       const buf = fsSync.readFileSync(pathStr);
-      return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+      return buf.buffer.slice(
+        buf.byteOffset,
+        buf.byteOffset + buf.byteLength,
+      ) as ArrayBuffer;
     } catch {
       // Fall through to descriptive error
     }
@@ -162,17 +173,17 @@ export async function loadWasmBytes(source: string | URL): Promise<ArrayBuffer> 
   // ── No loader found — tell the user exactly what to do ──
   throw new Error(
     `configureWasm: cannot load "${String(source)}" automatically in this environment.\n\n` +
-    `Read the file yourself and pass the bytes directly:\n\n` +
-    `  // Node.js\n` +
-    `  import { readFile } from "node:fs/promises";\n` +
-    `  await configureWasm(await readFile("/path/to/phantom_kernel.wasm"));\n\n` +
-    `  // React Native (react-native-fs)\n` +
-    `  import RNFS from "react-native-fs";\n` +
-    `  const b64 = await RNFS.readFile(path, "base64");\n` +
-    `  const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0)).buffer;\n` +
-    `  await configureWasm(bytes);\n\n` +
-    `  // Any environment\n` +
-    `  const bytes = await myCustomLoader(path);\n` +
-    `  await configureWasm(bytes);`,
+      `Read the file yourself and pass the bytes directly:\n\n` +
+      `  // Node.js\n` +
+      `  import { readFile } from "node:fs/promises";\n` +
+      `  await configureWasm(await readFile("/path/to/phantom_kernel.wasm"));\n\n` +
+      `  // React Native (react-native-fs)\n` +
+      `  import RNFS from "react-native-fs";\n` +
+      `  const b64 = await RNFS.readFile(path, "base64");\n` +
+      `  const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0)).buffer;\n` +
+      `  await configureWasm(bytes);\n\n` +
+      `  // Any environment\n` +
+      `  const bytes = await myCustomLoader(path);\n` +
+      `  await configureWasm(bytes);`,
   );
 }

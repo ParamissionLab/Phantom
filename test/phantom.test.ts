@@ -150,6 +150,8 @@ describe("default phantom API", () => {
     expect(masked.data[3]).toBeGreaterThan(0);
     expect(flattened.data[3]).toBe(255);
     expect(plan.encode.format).toBe("jpeg");
-    expect(phantom.createAssetPlan(sampleImage()).filters).toContain("smoothEnhance");
+    expect(phantom.createAssetPlan(sampleImage()).filters).toContain(
+      "smoothEnhance",
+    );
   });
 });

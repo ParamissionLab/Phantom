@@ -113,7 +113,10 @@ const featureRows = [
   ],
   ["Overlap-safe tiles", "Kernel radius metadata prevents hard tile borders"],
   ["CPU fallback", "Deterministic fixed-point TypeScript kernels"],
-  ["WASM — auto", "configureWasm() once at startup; all pipeline calls use WASM kernel automatically"],
+  [
+    "WASM — auto",
+    "configureWasm() once at startup; all pipeline calls use WASM kernel automatically",
+  ],
   ["WebGPU", "Compute shader backend for parallel RGBA filters"],
   ["Workers", "Transferable tile payloads and SharedArrayBuffer helper"],
   [
@@ -847,7 +850,10 @@ async function runWasmLab(): Promise<string> {
     id: "stub-wasm",
     processTile(payload, filter) {
       // Passthrough — behaves like identity
-      return applyFilterToTile({ descriptor: payload.descriptor, rgba: payload.rgba }, filter);
+      return applyFilterToTile(
+        { descriptor: payload.descriptor, rgba: payload.rgba },
+        filter,
+      );
     },
   };
   // Low-level: registerProcessor directly

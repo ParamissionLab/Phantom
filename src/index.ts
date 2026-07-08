@@ -1,7 +1,4 @@
-export {
-  FixedByteRingBuffer,
-  pipeChunksToBuffer,
-} from "./core/ring-buffer.js";
+export { FixedByteRingBuffer, pipeChunksToBuffer } from "./core/ring-buffer.js";
 export { applyFilterToTile } from "./core/kernels.js";
 export {
   applyAlphaMask,
@@ -85,10 +82,7 @@ export {
   registerProcessor,
   getRegisteredProcessor,
 } from "./core/wasm-registry.js";
-export {
-  adjustRawImage,
-  type ImageAdjustOptions,
-} from "./core/adjust.js";
+export { adjustRawImage, type ImageAdjustOptions } from "./core/adjust.js";
 export {
   applyTextWatermark,
   type TextWatermarkOptions,
