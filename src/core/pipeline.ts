@@ -2,6 +2,7 @@ import { applyFilterToTile } from "./kernels.js";
 import { getPixelFilterOverlap, getPixelFilterProfile } from "./filters.js";
 import { TileBufferPool } from "./tile-buffer-pool.js";
 import { planTiles, rectByteLength } from "./tiling.js";
+import { getRegisteredProcessor } from "./wasm-registry.js";
 import {
   PhantomError,
   RGBA_CHANNELS,
@@ -58,7 +59,8 @@ export async function processRawImageWithStats(
   assertRgbaLength(input);
 
   const { tileSize, overlap, filter } = resolveProcessOptions(options);
-  const tileProcessor = options.tileProcessor ?? cpuTileProcessor;
+  // Precedence: explicit option → registered global processor → CPU baseline
+  const tileProcessor = options.tileProcessor ?? getRegisteredProcessor() ?? cpuTileProcessor;
 
   const output: RawRgbaImage = {
     width: input.width,
@@ -325,7 +327,8 @@ export async function processTileSourceWithStats(
   options: ProcessOptions = {},
 ): Promise<ProcessStats> {
   const { tileSize, overlap, filter } = resolveProcessOptions(options);
-  const tileProcessor = options.tileProcessor ?? cpuTileProcessor;
+  // Precedence: explicit option → registered global processor → CPU baseline
+  const tileProcessor = options.tileProcessor ?? getRegisteredProcessor() ?? cpuTileProcessor;
   const tiles = planTiles({
     width: dimensions.width,
     height: dimensions.height,

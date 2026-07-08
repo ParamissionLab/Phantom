@@ -8,6 +8,7 @@ import {
   chooseTileSize,
   cloneRawImage,
   clampU8,
+  configureWasm,
   convertImage,
   cpuTileProcessor,
   createPhantomAssetPlan,
@@ -23,6 +24,8 @@ import {
   fromFixed,
   getImageFormatProfile,
   getPixelFilterOverlap,
+  getRegisteredProcessor,
+  isWasmReady,
   listPixelFilters,
   listImageFormats,
   makeImage,
@@ -111,7 +114,7 @@ const featureRows = [
   ],
   ["Overlap-safe tiles", "Kernel radius metadata prevents hard tile borders"],
   ["CPU fallback", "Deterministic fixed-point TypeScript kernels"],
-  ["Zig WASM", "Tile API exports for accelerated browser/runtime kernels"],
+  ["Zig WASM — auto", "configureWasm() once at startup; all pipeline calls use Zig kernel automatically"],
   ["WebGPU", "Compute shader backend for parallel RGBA filters"],
   ["Workers", "Transferable tile payloads and SharedArrayBuffer helper"],
   [
@@ -165,6 +168,11 @@ const featureLabChecks = [
     id: "labRuntime",
     label: "Runtime exports",
     scope: "capability report and worker availability",
+  },
+  {
+    id: "labWasm",
+    label: "WASM auto-boot",
+    scope: "configureWasm, isWasmReady, registerProcessor",
   },
 ] as const;
 
@@ -377,14 +385,18 @@ app.innerHTML = `
 
         <section class="rounded-lg border border-zinc-200 bg-zinc-950 p-3 text-zinc-100">
           <h2 class="text-lg font-semibold">Use the SDK</h2>
-  <pre class="mt-3 overflow-auto rounded-md bg-black/40 p-3 text-xs leading-5 text-emerald-100"><code>import {
-  processRawImage,
-  applyAlphaMask,
-  describeProcessingPlan,
-  listPixelFilters
-} from "@paramission-lab/phantom";
-import { createPhantomAi }
-  from "@paramission-lab/phantom/ai";</code></pre>
+  <pre class="mt-3 overflow-auto rounded-md bg-black/40 p-3 text-xs leading-5 text-emerald-100"><code>import phantom, { configureWasm }
+  from "@paramission-lab/phantom";
+
+// ⚡ One call — all pipeline calls
+// use Zig WASM automatically.
+await configureWasm("/phantom_kernel.wasm");
+
+const out = await phantom
+  .edit(image)
+  .adjust({ brightness: 10, contrast: 15 })
+  .filter("smoothEnhance")
+  .run();</code></pre>
         </section>
       </aside>
     </section>
@@ -640,6 +652,7 @@ async function runFeatureLab(): Promise<void> {
     labPlanning: runPlanningLab,
     labBuffers: runBufferLab,
     labRuntime: runRuntimeLab,
+    labWasm: runWasmLab,
   };
 
   for (const check of featureLabChecks) {
@@ -823,6 +836,39 @@ function runRuntimeLab(): string {
   const filters = listPixelFilters().length;
 
   return `${report.backend}, workers=${workerAvailable ? "available" : "unavailable"}, filters=${filters}, lanes=${report.hardwareConcurrency}`;
+}
+
+async function runWasmLab(): Promise<string> {
+  // Verify configureWasm() / registerProcessor() / isWasmReady() API surface
+  // without a real .wasm file — confirm that the registry round-trips correctly.
+  const beforeBoot = isWasmReady();
+
+  // Register a stub processor to prove the registry accepts custom processors
+  const stubProcessor: TileProcessor = {
+    id: "stub-wasm",
+    processTile(payload, filter) {
+      // Passthrough — behaves like identity
+      return applyFilterToTile({ descriptor: payload.descriptor, rgba: payload.rgba }, filter);
+    },
+  };
+  // Low-level: registerProcessor directly
+  const { registerProcessor } = await import("../../src/core/wasm-registry.js");
+  registerProcessor(stubProcessor);
+  const afterRegister = isWasmReady();
+  const registered = getRegisteredProcessor();
+
+  // Confirm the registered processor is the one we set
+  const idMatch = registered?.id === "stub-wasm";
+
+  // Revert to CPU baseline
+  registerProcessor(null);
+  const afterClear = isWasmReady();
+
+  // Test configureWasm(null) — should also clear without error
+  await configureWasm(null);
+  const afterConfigureNull = isWasmReady();
+
+  return `before=${String(beforeBoot)}, after-register=${String(afterRegister)}, id-match=${String(idMatch)}, after-clear=${String(afterClear)}, after-configure-null=${String(afterConfigureNull)}`;
 }
 
 async function runCurrentOperation(): Promise<void> {

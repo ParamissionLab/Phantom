@@ -36,6 +36,16 @@ import {
   type Rect,
   type TileProcessor,
 } from "./types.js";
+import { adjustRawImage, type ImageAdjustOptions } from "./adjust.js";
+import { applyTextWatermark, type TextWatermarkOptions, type WatermarkResult } from "./watermark.js";
+import { computeHistogram, autoLevelSuggestion, type ImageHistogram } from "./histogram.js";
+import {
+  registerProcessor,
+  getRegisteredProcessor,
+  getPendingInit,
+  setPendingInit,
+  loadWasmBytes,
+} from "./wasm-registry.js";
 
 export interface FilterOptions {
   readonly tileSize?: number;
@@ -61,6 +71,10 @@ export interface PhantomEditPipeline {
     options?: AlphaMaskRefinementOptions,
   ): PhantomEditPipeline;
   background(color: RgbColor): PhantomEditPipeline;
+  /** Apply tone/color adjustments (brightness, contrast, saturation, temperature, hue, gamma). */
+  adjust(options: ImageAdjustOptions): PhantomEditPipeline;
+  /** Burn a text watermark into the image (requires browser Canvas API). */
+  watermark(options: TextWatermarkOptions): PhantomEditPipeline;
   plan(options?: PhantomAssetPlanOptions): Promise<PhantomAssetPlan>;
   run(): Promise<RawRgbaImage>;
 }
@@ -151,6 +165,43 @@ export function replaceBackground(
 }
 
 /**
+ * Applies tone and color adjustments to a raw RGBA image.
+ * Accepts brightness, contrast, saturation, temperature, hue, and gamma.
+ */
+export function adjustImage(
+  image: RawRgbaImage,
+  options: ImageAdjustOptions,
+): RawRgbaImage {
+  return adjustRawImage(image, options);
+}
+
+/**
+ * Burns a text watermark onto a raw RGBA image using the browser Canvas API.
+ */
+export function watermarkImage(
+  image: RawRgbaImage,
+  options: TextWatermarkOptions,
+): WatermarkResult {
+  return applyTextWatermark(image, options);
+}
+
+/**
+ * Computes per-channel RGB and luminance histograms for an image.
+ */
+export function analyzeImage(image: RawRgbaImage): ImageHistogram {
+  return computeHistogram(image);
+}
+
+/**
+ * Returns suggested brightness/contrast adjustments based on histogram analysis.
+ */
+export function autoLevelImage(
+  image: RawRgbaImage,
+): { brightness: number; contrast: number } {
+  return autoLevelSuggestion(computeHistogram(image));
+}
+
+/**
  * Builds a Phantom-specific image job recipe for filters, tiles, and encoding.
  */
 export function planAsset(
@@ -181,6 +232,88 @@ export function optimizeImage(
 }
 
 /**
+ * Loads the Zig WASM kernel and registers it as the global tile processor.
+ *
+ * After this call every `applyFilter`, `applyFilters`, `processRawImage`,
+ * `edit().filter()`, and `processTileSource` call that does NOT supply its
+ * own `tileProcessor` option will run through the compiled Zig kernel
+ * automatically — no extra configuration needed at any call site.
+ *
+ * @param source  URL string, `URL`, `ArrayBuffer`, or `BufferSource` that
+ *                points to (or contains) `phantom_kernel.wasm`.
+ *
+ * @example
+ *   // Call once at app startup — all subsequent phantom calls use WASM.
+ *   import phantom, { configureWasm } from "@paramission-lab/phantom";
+ *
+ *   await configureWasm("/assets/phantom_kernel.wasm");
+ *   const output = await phantom.applyFilter(image, "smoothEnhance");
+ *
+ * Pass `null` to revert to the CPU TypeScript baseline:
+ *   await configureWasm(null);
+ */
+export async function configureWasm(
+  source: string | URL | BufferSource | null,
+): Promise<void> {
+  // ── Reset path ──────────────────────────────────────────────────────────
+  if (source === null) {
+    registerProcessor(null); // also clears pendingInit via registerProcessor
+    return;
+  }
+
+  // ── Already loaded ───────────────────────────────────────────────────────
+  if (isWasmReady()) {
+    return;
+  }
+
+  // ── Dedup: if another call is already in-flight, await that one ──────────
+  const existing = getPendingInit();
+  if (existing !== null) {
+    return existing;
+  }
+
+  // ── Start a new init ─────────────────────────────────────────────────────
+  const init = (async (): Promise<void> => {
+    // Lazy-import — WASM code is never bundled unless configureWasm() runs.
+    const { instantiateZigBackend, createZigTileProcessor } = await import(
+      "../wasm/zig-backend.js"
+    );
+
+    // Resolve bytes from any source type without requiring the caller to know
+    // which API to use.
+    let bytes: BufferSource;
+    if (typeof source === "string" || source instanceof URL) {
+      bytes = await loadWasmBytes(source);
+    } else {
+      bytes = source;
+    }
+
+    const backend = await instantiateZigBackend(bytes);
+    registerProcessor(createZigTileProcessor(backend));
+  })();
+
+  // Store so concurrent callers can join.
+  setPendingInit(init);
+
+  try {
+    await init;
+  } finally {
+    // Whether it succeeded or failed, clear the pending slot so a retry is
+    // possible without calling configureWasm(null) first.
+    if (!isWasmReady()) {
+      setPendingInit(null);
+    }
+  }
+}
+
+/**
+ * Returns true when a WASM backend has been loaded via `configureWasm()`.
+ */
+export function isWasmReady(): boolean {
+  return getRegisteredProcessor() !== null;
+}
+
+/**
  * Starts a beginner-friendly image editing pipeline. It keeps the common flow
  * on one object while preserving the lower-level functions for advanced use.
  */
@@ -203,9 +336,17 @@ export const phantom = {
   applyFilters,
   applyMask,
   replaceBackground,
+  adjustImage,
+  watermarkImage,
+  analyzeImage,
+  autoLevelImage,
   planAsset,
   convertImage,
   optimizeImage,
+  /** @see configureWasm */
+  configureWasm,
+  /** @see isWasmReady */
+  isWasmReady,
 } as const;
 
 class PhantomEditSession implements PhantomEditPipeline {
@@ -246,6 +387,14 @@ class PhantomEditSession implements PhantomEditPipeline {
 
   public background(color: RgbColor): PhantomEditPipeline {
     return this.next((image) => replaceBackground(image, color));
+  }
+
+  public adjust(options: ImageAdjustOptions): PhantomEditPipeline {
+    return this.next((image) => adjustImage(image, options));
+  }
+
+  public watermark(options: TextWatermarkOptions): PhantomEditPipeline {
+    return this.next((image) => watermarkImage(image, options).image);
   }
 
   public async plan(

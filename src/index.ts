@@ -59,12 +59,17 @@ export {
   type RgbaColor,
 } from "./core/image.js";
 export {
+  adjustImage,
+  analyzeImage,
   applyFilter,
   applyFilters,
   applyMask,
+  autoLevelImage,
+  configureWasm,
   convertImage,
   cropImage,
   editImage,
+  isWasmReady,
   makeImage,
   optimizeImage,
   phantom,
@@ -72,10 +77,31 @@ export {
   processImage,
   replaceBackground,
   resizeImage,
+  watermarkImage,
   type FilterOptions,
   type PhantomEditPipeline,
 } from "./core/phantom.js";
 export { phantom as default } from "./core/phantom.js";
+export {
+  registerProcessor,
+  getRegisteredProcessor,
+} from "./core/wasm-registry.js";
+export {
+  adjustRawImage,
+  type ImageAdjustOptions,
+} from "./core/adjust.js";
+export {
+  applyTextWatermark,
+  type TextWatermarkOptions,
+  type WatermarkPosition,
+  type WatermarkResult,
+  type WatermarkTileMode,
+} from "./core/watermark.js";
+export {
+  autoLevelSuggestion,
+  computeHistogram,
+  type ImageHistogram,
+} from "./core/histogram.js";
 export {
   createRawTileSink,
   createRawTileSource,
