@@ -1,7 +1,7 @@
 # phantom
 
 [![CI](https://github.com/ParamissionLab/phantom/actions/workflows/ci.yml/badge.svg)](https://github.com/ParamissionLab/phantom/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
 Maintained by [Paramission Lab](https://github.com/ParamissionLab).
 
@@ -1064,8 +1064,8 @@ release tag.
 - [Changelog](CHANGELOG.md)
 - [Contributing](CONTRIBUTING.md)
 - [Security policy](SECURITY.md)
-- [MIT license](LICENSE)
+- [Apache 2.0 license](LICENSE)
 
 ## License
 
-[MIT](LICENSE)
+[Apache 2.0](LICENSE)

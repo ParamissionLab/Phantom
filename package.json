@@ -15,7 +15,7 @@
     "url": "https://github.com/ParamissionLab/phantom/issues"
   },
   "type": "module",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
