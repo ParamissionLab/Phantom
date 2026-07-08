@@ -9,6 +9,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Added
 
+- Added browser-based AI background-removal module using Hugging Face Transformers (`@huggingface/transformers`) with WebAssembly and WebGPU support.
+- Added Apache License 2.0 (`LICENSE` file) to the project repository.
 - Added `createImage()` as a clearer named alternative to `makeImage()`.
 - Added `createAssetPlan()` and `getProcessingPlan()` as descriptive named
   alternatives to `createPhantomAssetPlan()` and `describeProcessingPlan()`.
@@ -31,6 +33,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Changed
 
+- Migrated the project's license from MIT to Apache License 2.0 (updating `package.json`, `package-lock.json`, and `README.md` badge and license footer references).
 - Removed old `Phantom`-branded aliases (`createPhantomAssetPlan`, `planAsset`,
   `makeImage`, `processImage`, `describeProcessingPlan`, `autoLevelImage`,
   `autoLevelSuggestion`, `replaceTransparentBackground`, `refineAlphaMask`,
@@ -259,9 +262,9 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Unrolled packed Zig invert and grayscale loops and reused 3x3 neighbor indexes in enhancement kernels.
 - Added native Zig alpha-mask compositing.
 
-[Unreleased]: https://github.com/ParamissionLab/phantom/compare/v1.0.3...HEAD
-[1.0.3]: https://github.com/ParamissionLab/phantom/compare/v1.0.2...v1.0.3
-[1.0.2]: https://github.com/ParamissionLab/phantom/compare/v1.0.1...v1.0.2
-[1.0.1]: https://github.com/ParamissionLab/phantom/compare/v1.0.0...v1.0.1
-[1.0.0]: https://github.com/ParamissionLab/phantom/compare/v0.1.0...v1.0.0
-[0.1.0]: https://github.com/ParamissionLab/phantom/releases/tag/v0.1.0
+[Unreleased]: https://github.com/ParamissionLab/Phantom/compare/v1.0.3...HEAD
+[1.0.3]: https://github.com/ParamissionLab/Phantom/compare/v1.0.2...v1.0.3
+[1.0.2]: https://github.com/ParamissionLab/Phantom/compare/v1.0.1...v1.0.2
+[1.0.1]: https://github.com/ParamissionLab/Phantom/compare/v1.0.0...v1.0.1
+[1.0.0]: https://github.com/ParamissionLab/Phantom/compare/v0.1.0...v1.0.0
+[0.1.0]: https://github.com/ParamissionLab/Phantom/releases/tag/v0.1.0
