@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   FixedByteRingBuffer,
-  streamChunksToFixedBuffer,
+  pipeChunksToBuffer,
 } from "../src/index.js";
 
 describe("FixedByteRingBuffer", () => {
@@ -38,10 +38,10 @@ describe("FixedByteRingBuffer", () => {
   });
 });
 
-describe("streamChunksToFixedBuffer", () => {
+describe("pipeChunksToBuffer", () => {
   it("processes chunks through bounded capacity", async () => {
     const seen: number[] = [];
-    const total = await streamChunksToFixedBuffer(
+    const total = await pipeChunksToBuffer(
       [Uint8Array.from([1, 2]), Uint8Array.from([3])],
       (chunk) => {
         seen.push(...chunk);

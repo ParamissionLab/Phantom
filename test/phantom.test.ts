@@ -3,12 +3,11 @@ import phantomDefault, {
   applyFilter,
   applyFilters,
   applyMask,
+  createAssetPlan,
+  createImage,
   cropImage,
   editImage,
-  makeImage,
-  planAsset,
   phantom,
-  processImage,
   replaceBackground,
   resizeImage,
   type RawRgbaImage,
@@ -27,7 +26,7 @@ function sampleImage(): RawRgbaImage {
 
 describe("default phantom API", () => {
   it("creates, crops, and resizes images with short helper names", () => {
-    const base = makeImage(2, 2, { r: 20, g: 30, b: 40 });
+    const base = createImage(2, 2, { r: 20, g: 30, b: 40 });
     const cropped = cropImage(base, { x: 1, y: 0, width: 1, height: 2 });
     const resized = resizeImage(cropped, 2, 2, { method: "nearest" });
 
@@ -39,14 +38,14 @@ describe("default phantom API", () => {
   });
 
   it("exposes a single default facade", async () => {
-    const image = phantom.makeImage(1, 1, { r: 10, g: 20, b: 30 });
+    const image = phantom.createImage(1, 1, { r: 10, g: 20, b: 30 });
     const output = await phantom.applyFilter(image, "invert");
 
     expect(Array.from(output.data)).toEqual([245, 235, 225, 255]);
   });
 
   it("supports default import for the main API", async () => {
-    const image = phantomDefault.makeImage(1, 1, { r: 10, g: 20, b: 30 });
+    const image = phantomDefault.createImage(1, 1, { r: 10, g: 20, b: 30 });
     const output = await phantomDefault.applyFilter(image, "invert");
 
     expect(Array.from(output.data)).toEqual([245, 235, 225, 255]);
@@ -68,11 +67,11 @@ describe("default phantom API", () => {
     ]);
   });
 
-  it("supports named editImage and processImage aliases", async () => {
+  it("supports named editImage", async () => {
     const edited = await editImage(sampleImage())
       .filters(["grayscale", "invert"], { tileSize: 1 })
       .run();
-    const plan = await processImage(sampleImage()).plan();
+    const plan = await editImage(sampleImage()).plan();
 
     expect(edited.width).toBe(2);
     expect(plan.filters).toContain("smoothEnhance");
@@ -145,12 +144,12 @@ describe("default phantom API", () => {
       data: Uint8Array.of(128),
     });
     const flattened = replaceBackground(cutout, { r: 0, g: 0, b: 0 });
-    const plan = planAsset(sampleImage());
+    const plan = createAssetPlan(sampleImage());
 
     expect(cutout.removedPixels).toBe(1);
     expect(masked.data[3]).toBeGreaterThan(0);
     expect(flattened.data[3]).toBe(255);
     expect(plan.encode.format).toBe("jpeg");
-    expect(phantom.planAsset(sampleImage()).filters).toContain("smoothEnhance");
+    expect(phantom.createAssetPlan(sampleImage()).filters).toContain("smoothEnhance");
   });
 });

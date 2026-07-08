@@ -1,12 +1,11 @@
-import { createPhantomAi, removeBackgroundAi } from "./browser-background.js";
+import { aiRemoveBackground, createAiRemover } from "./browser-background.js";
 
 export {
+  AI_BACKGROUND_DEFAULTS,
   BrowserBackgroundRemover,
-  PHANTOM_AI_BACKGROUND_DEFAULTS,
-  createAiBackgroundRemover,
-  createPhantomAi,
-  removeBackgroundAi,
-  resolveAiMaskRefinementOptions,
+  aiRemoveBackground,
+  createAiRemover,
+  normalizeAiMaskOptions,
   type AiBackend,
   type AiBackendPreference,
   type AiBackgroundRemovalOptions,
@@ -19,8 +18,8 @@ export {
 } from "./browser-background.js";
 
 export const ai = {
-  removeBackground: removeBackgroundAi,
-  create: createPhantomAi,
+  removeBackground: aiRemoveBackground,
+  create: createAiRemover,
 } as const;
 
 export default ai;

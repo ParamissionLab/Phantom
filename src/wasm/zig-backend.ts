@@ -13,9 +13,9 @@ import type { WasmKernelBackend, WasmKernelExports } from "./types.js";
 const PAGE_SIZE_BYTES = 64 * 1024;
 
 /**
- * Instantiates the optional Zig WASM backend.
+ * Instantiates the Zig WASM kernel backend.
  */
-export async function instantiateZigBackend(
+export async function instantiateWasmBackend(
   source: BufferSource | WebAssembly.Module,
 ): Promise<WasmKernelBackend> {
   const instance =
@@ -31,9 +31,9 @@ export async function instantiateZigBackend(
 }
 
 /**
- * Adapts an instantiated Zig WASM backend to the core tile-processing contract.
+ * Adapts an instantiated WASM backend to the core tile-processing contract.
  */
-export function createZigTileProcessor(
+export function createWasmTileProcessor(
   backend: WasmKernelBackend,
 ): TileProcessor {
   return {

@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   applyAlphaMask,
-  refineAlphaMask,
-  replaceTransparentBackground,
+  featherAlphaMask,
+  fillTransparentWith,
 } from "../src/index.js";
 
 describe("AI mask utilities", () => {
   it("can flatten transparent pixels onto a solid background", () => {
-    const flattened = replaceTransparentBackground(
+    const flattened = fillTransparentWith(
       {
         width: 1,
         height: 2,
@@ -51,7 +51,7 @@ describe("AI mask utilities", () => {
         240, 240, 240, 255, 20, 20, 20, 255, 20, 20, 20, 255,
       ]),
     };
-    const mask = refineAlphaMask(
+    const mask = featherAlphaMask(
       image,
       { width: 3, height: 1, data: Uint8Array.from([0, 128, 255]) },
       { threshold: 0, softness: 255, featherRadius: 1, edgeSensitivity: 20 },
@@ -64,7 +64,7 @@ describe("AI mask utilities", () => {
 
   it("rejects malformed semantic masks", () => {
     expect(() =>
-      refineAlphaMask(
+      featherAlphaMask(
         { width: 1, height: 1, data: Uint8Array.from([0, 0, 0, 255]) },
         { width: 2, height: 2, data: Uint8Array.of(255) },
       ),

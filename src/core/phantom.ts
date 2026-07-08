@@ -1,13 +1,13 @@
 import {
   applyAlphaMask,
-  replaceTransparentBackground,
+  fillTransparentWith,
   type AlphaMask,
   type AlphaMaskRefinementOptions,
   type AlphaMaskResult,
   type RgbColor,
 } from "./background.js";
 import {
-  createPhantomAssetPlan,
+  createAssetPlan as _createAssetPlan,
   type PhantomAssetPlan,
   type PhantomAssetPlanOptions,
 } from "./asset-plan.js";
@@ -38,13 +38,14 @@ import {
 } from "./types.js";
 import { adjustRawImage, type ImageAdjustOptions } from "./adjust.js";
 import { applyTextWatermark, type TextWatermarkOptions, type WatermarkResult } from "./watermark.js";
-import { computeHistogram, autoLevelSuggestion, type ImageHistogram } from "./histogram.js";
+import { computeHistogram, suggestAutoAdjust, type ImageHistogram } from "./histogram.js";
 import {
   registerProcessor,
   getRegisteredProcessor,
   getPendingInit,
   setPendingInit,
   loadWasmBytes,
+  resolveKernelUrl,
 } from "./wasm-registry.js";
 
 export interface FilterOptions {
@@ -80,9 +81,9 @@ export interface PhantomEditPipeline {
 }
 
 /**
- * Allocates a raw RGBA image with a compact width/height signature.
+ * Allocates a raw RGBA image.
  */
-export function makeImage(
+export function createImage(
   width: number,
   height: number,
   color?: RgbaColor,
@@ -161,7 +162,7 @@ export function replaceBackground(
   image: RawRgbaImage,
   color: RgbColor,
 ): RawRgbaImage {
-  return replaceTransparentBackground(image, color);
+  return fillTransparentWith(image, color);
 }
 
 /**
@@ -195,21 +196,12 @@ export function analyzeImage(image: RawRgbaImage): ImageHistogram {
 /**
  * Returns suggested brightness/contrast adjustments based on histogram analysis.
  */
-export function autoLevelImage(
+export function autoAdjustImage(
   image: RawRgbaImage,
 ): { brightness: number; contrast: number } {
-  return autoLevelSuggestion(computeHistogram(image));
+  return suggestAutoAdjust(computeHistogram(image));
 }
 
-/**
- * Builds a Phantom-specific image job recipe for filters, tiles, and encoding.
- */
-export function planAsset(
-  image: RawRgbaImage,
-  options: PhantomAssetPlanOptions = {},
-): PhantomAssetPlan {
-  return createPhantomAssetPlan(image, options);
-}
 
 /**
  * Converts browser image inputs between common web image formats.
@@ -275,7 +267,7 @@ export async function configureWasm(
   // ── Start a new init ─────────────────────────────────────────────────────
   const init = (async (): Promise<void> => {
     // Lazy-import — WASM code is never bundled unless configureWasm() runs.
-    const { instantiateZigBackend, createZigTileProcessor } = await import(
+    const { instantiateWasmBackend, createWasmTileProcessor } = await import(
       "../wasm/zig-backend.js"
     );
 
@@ -288,8 +280,8 @@ export async function configureWasm(
       bytes = source;
     }
 
-    const backend = await instantiateZigBackend(bytes);
-    registerProcessor(createZigTileProcessor(backend));
+    const backend = await instantiateWasmBackend(bytes);
+    registerProcessor(createWasmTileProcessor(backend));
   })();
 
   // Store so concurrent callers can join.
@@ -314,22 +306,44 @@ export function isWasmReady(): boolean {
 }
 
 /**
- * Starts a beginner-friendly image editing pipeline. It keeps the common flow
- * on one object while preserving the lower-level functions for advanced use.
+ * Zero-argument convenience wrapper around `configureWasm`.
+ *
+ * Resolves the path to `phantom_kernel.wasm` automatically using
+ * `import.meta.url`, so callers never need to hard-code a URL.
+ *
+ * @example
+ *   // Call once at app startup — no path needed.
+ *   import phantom, { useWasm } from "@paramission-lab/phantom";
+ *
+ *   await useWasm();
+ *   const output = await phantom.applyFilter(image, "smoothEnhance");
+ *
+ * @throws {Error} If the wasm URL cannot be resolved automatically in this
+ *   environment. In that case fall back to the explicit overload:
+ *   `await configureWasm("/your/path/phantom_kernel.wasm")`.
  */
+export async function useWasm(): Promise<void> {
+  const url = resolveKernelUrl();
+  if (url === null) {
+    throw new Error(
+      `configureWasmAuto: cannot resolve phantom_kernel.wasm automatically ` +
+      `in this environment (import.meta.url is unavailable).\n` +
+      `Use the explicit form instead: await configureWasm("/path/to/phantom_kernel.wasm");`,
+    );
+  }
+  return configureWasm(url);
+}
+
+/** Starts a beginner-friendly image editing pipeline. */
 export function editImage(
   image: RawRgbaImage | Promise<RawRgbaImage>,
 ): PhantomEditPipeline {
   return new PhantomEditSession(Promise.resolve(image));
 }
 
-/** Short alias for `editImage()` when callers think in processing pipelines. */
-export const processImage = editImage;
-
 export const phantom = {
-  makeImage,
+  createImage,
   edit: editImage,
-  process: processImage,
   cropImage,
   resizeImage,
   applyFilter,
@@ -339,12 +353,14 @@ export const phantom = {
   adjustImage,
   watermarkImage,
   analyzeImage,
-  autoLevelImage,
-  planAsset,
+  autoAdjustImage,
+  createAssetPlan: _createAssetPlan,
   convertImage,
   optimizeImage,
   /** @see configureWasm */
   configureWasm,
+  /** @see useWasm */
+  useWasm,
   /** @see isWasmReady */
   isWasmReady,
 } as const;
@@ -400,7 +416,7 @@ class PhantomEditSession implements PhantomEditPipeline {
   public async plan(
     options: PhantomAssetPlanOptions = {},
   ): Promise<PhantomAssetPlan> {
-    return planAsset(await this.imagePromise, options);
+    return _createAssetPlan(await this.imagePromise, options);
   }
 
   public run(): Promise<RawRgbaImage> {

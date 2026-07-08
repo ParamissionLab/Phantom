@@ -11,12 +11,12 @@ import {
   configureWasm,
   convertImage,
   cpuTileProcessor,
-  createPhantomAssetPlan,
+  createAssetPlan,
   createRawRgbaImage,
   createRawTileSink,
   createRawTileSource,
   cropImage,
-  describeProcessingPlan,
+  getProcessingPlan,
   detectCapabilities,
   encodeRawImage,
   FixedByteRingBuffer,
@@ -28,14 +28,13 @@ import {
   isWasmReady,
   listPixelFilters,
   listImageFormats,
-  makeImage,
+  createImage,
   multiplyFixed,
   normalizeImageFormat,
   optimizeImage,
   phantom,
-  planAsset,
   planTiles,
-  processImage,
+  editImage,
   processRawImage,
   processRawImagePipeline,
   processRawImageWithStats,
@@ -43,7 +42,7 @@ import {
   RGBA_CHANNELS,
   resizeImage,
   SharedTileBuffer,
-  streamChunksToFixedBuffer,
+  pipeChunksToBuffer,
   toFixed,
   type PixelFilter,
   type AlphaMask,
@@ -53,8 +52,8 @@ import {
   type TileProcessor,
 } from "../../src/index.js";
 import {
-  createPhantomAi,
-  resolveAiMaskRefinementOptions,
+  createAiRemover,
+  normalizeAiMaskOptions,
   type AiBackend,
   type AiProgress,
 } from "../../src/ai/index.js";
@@ -114,7 +113,7 @@ const featureRows = [
   ],
   ["Overlap-safe tiles", "Kernel radius metadata prevents hard tile borders"],
   ["CPU fallback", "Deterministic fixed-point TypeScript kernels"],
-  ["Zig WASM — auto", "configureWasm() once at startup; all pipeline calls use Zig kernel automatically"],
+  ["WASM — auto", "configureWasm() once at startup; all pipeline calls use WASM kernel automatically"],
   ["WebGPU", "Compute shader backend for parallel RGBA filters"],
   ["Workers", "Transferable tile payloads and SharedArrayBuffer helper"],
   [
@@ -184,7 +183,7 @@ let imageBounds: Rect | undefined;
 let semanticMask: AlphaMask | undefined;
 let semanticBackend: AiBackend | undefined;
 let semanticMaskPromise: Promise<AlphaMask> | undefined;
-const phantomAi = createPhantomAi();
+const phantomAi = createAiRemover();
 let aiPreloadPromise: Promise<void> | undefined;
 
 const app = document.querySelector<HTMLDivElement>("#app");
@@ -389,7 +388,7 @@ app.innerHTML = `
   from "@paramission-lab/phantom";
 
 // ⚡ One call — all pipeline calls
-// use Zig WASM automatically.
+// use the WASM backend automatically.
 await configureWasm("/phantom_kernel.wasm");
 
 const out = await phantom
@@ -601,7 +600,7 @@ function renderPlan(): void {
     maxTileSize: 4096,
     minTileSize: 256,
   });
-  const stats = describeProcessingPlan(target, {
+  const stats = getProcessingPlan(target, {
     tileSize,
     overlap,
     filter: state.filter,
@@ -669,7 +668,7 @@ async function runFeatureLab(): Promise<void> {
 }
 
 function runImageHelperLab(): string {
-  const generated = makeImage(1, 1, { r: 12, g: 34, b: 56 });
+  const generated = createImage(1, 1, { r: 12, g: 34, b: 56 });
   const raw = createLabImage();
   const cloned = cloneRawImage(raw);
   const cropped = cropImage(cloned, { x: 1, y: 1, width: 4, height: 3 });
@@ -690,8 +689,8 @@ async function runFacadeLab(): Promise<string> {
     .resize(6, 6, { method: "nearest" })
     .filter("identity", { tileSize: 3 })
     .run();
-  const plan = await processImage(raw).plan({ goal: "preview" });
-  const assetPlan = planAsset(raw, { goal: "delivery" });
+  const plan = await editImage(raw).plan({ goal: "preview" });
+  const assetPlan = createAssetPlan(raw, { goal: "delivery" });
 
   return `${one.data.byteLength + many.data.byteLength + edited.data.byteLength} bytes processed; preview ${plan.encode.format}, delivery ${assetPlan.encode.format}`;
 }
@@ -794,12 +793,12 @@ async function runCodecLab(): Promise<string> {
 
 function runPlanningLab(): string {
   const raw = createLabImage();
-  const preview = createPhantomAssetPlan(raw, { goal: "preview" });
-  const cutout = createPhantomAssetPlan(raw, {
+  const preview = createAssetPlan(raw, { goal: "preview" });
+  const cutout = createAssetPlan(raw, {
     goal: "transparent-cutout",
     maxWorkerBytes: 4 * 1024 * 1024,
   });
-  const stats = describeProcessingPlan(raw, {
+  const stats = getProcessingPlan(raw, {
     tileSize: preview.tileSize,
     overlap: preview.overlap,
     filter: preview.filters[0] ?? "identity",
@@ -814,7 +813,7 @@ async function runBufferLab(): Promise<string> {
   const readTarget = new Uint8Array(3);
   const read = ring.read(readTarget);
   const chunks: number[] = [];
-  const streamed = await streamChunksToFixedBuffer(
+  const streamed = await pipeChunksToBuffer(
     [Uint8Array.from([6, 7]), Uint8Array.from([8, 9])],
     (chunk) => {
       chunks.push(chunk.byteLength);
@@ -988,7 +987,7 @@ async function removeBackgroundWithAi(
   const result = applyAlphaMask(
     { width: bounds.width, height: bounds.height, data: cropped },
     mask,
-    resolveAiMaskRefinementOptions({
+    normalizeAiMaskOptions({
       maskCutoff: state.backgroundThreshold,
       softness: state.backgroundSoftness,
       featherRadius: state.backgroundFeather,

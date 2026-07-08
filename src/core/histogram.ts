@@ -90,10 +90,10 @@ export function computeHistogram(image: RawRgbaImage): ImageHistogram {
 }
 
 /**
- * Computes the suggested auto-level adjustments based on histogram stretch.
- * Returns brightness/contrast adjustments compatible with `adjustRawImage`.
+ * Suggests brightness/contrast adjustments based on histogram stretch.
+ * Returns values compatible with `adjustRawImage`.
  */
-export function autoLevelSuggestion(histogram: ImageHistogram): { brightness: number; contrast: number } {
+export function suggestAutoAdjust(histogram: ImageHistogram): { brightness: number; contrast: number } {
   const { dynamicRangeLow, dynamicRangeHigh } = histogram;
   const range = dynamicRangeHigh - dynamicRangeLow;
 

@@ -1,7 +1,7 @@
 {
   "name": "@paramission-lab/phantom",
-  "version": "1.0.2",
-  "description": "Tile-first extreme resolution RGBA image processing for browser, workers, WebGPU, and Zig WASM.",
+  "version": "1.0.3",
+  "description": "Blazing-fast RGBA image processing for massive resolutions — tiles, WebGPU, WASM, and AI mask removal, zero full-frame allocations.",
   "author": {
     "name": "Paramission Lab",
     "url": "https://github.com/ParamissionLab"

@@ -35,11 +35,11 @@ export interface AlphaMaskResult extends RawRgbaImage {
 }
 
 /**
- * Resizes and refines a model-produced alpha mask against source image edges.
+ * Resizes and feathers a model-produced alpha mask against source image edges.
  * The color-guided filter smooths noisy AI mask pixels without blurring across
  * strong hair, skin, clothing, or product boundaries.
  */
-export function refineAlphaMask(
+export function featherAlphaMask(
   image: RawRgbaImage,
   mask: AlphaMask,
   options: AlphaMaskRefinementOptions = {},
@@ -92,7 +92,7 @@ export function applyAlphaMask(
   mask: AlphaMask,
   options: AlphaMaskRefinementOptions = {},
 ): AlphaMaskResult {
-  const refined = refineAlphaMask(image, mask, options);
+  const refined = featherAlphaMask(image, mask, options);
   const output = new Uint8Array(image.data);
   let removedPixels = 0;
   let partialPixels = 0;
@@ -122,7 +122,10 @@ export function applyAlphaMask(
   };
 }
 
-export function replaceTransparentBackground(
+/**
+ * Flattens transparent pixels onto a solid background color.
+ */
+export function fillTransparentWith(
   image: RawRgbaImage,
   color: RgbColor,
 ): RawRgbaImage {

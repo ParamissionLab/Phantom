@@ -121,10 +121,11 @@ export class FixedByteRingBuffer {
 }
 
 /**
- * Streams chunks through a bounded ring buffer and invokes `onChunk` with the
- * readable bytes. This keeps ingestion capacity fixed even for large sources.
+ * Pipes async/sync chunks through a bounded ring buffer, calling `onChunk`
+ * with each batch of readable bytes. Keeps ingestion at a fixed memory footprint
+ * even for large sources.
  */
-export async function streamChunksToFixedBuffer(
+export async function pipeChunksToBuffer(
   chunks: AsyncIterable<Uint8Array> | Iterable<Uint8Array>,
   onChunk: (chunk: Uint8Array) => Promise<void> | void,
   capacityBytes = DEFAULT_CAPACITY_BYTES,

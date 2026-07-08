@@ -7,8 +7,8 @@ Maintained by [Paramission Lab](https://github.com/ParamissionLab).
 
 Phantom is a TypeScript-first RGBA image-processing SDK for large browser and
 Node.js workloads. It keeps memory bounded with overlap-aware tiles, provides a
-deterministic CPU baseline, and exposes optional browser workers, WebGPU, Zig
-WebAssembly, and AI background-removal paths.
+deterministic CPU baseline, and exposes optional browser workers, WebGPU, WASM,
+and AI background-removal paths.
 
 ## Table of Contents
 
@@ -27,7 +27,7 @@ WebAssembly, and AI background-removal paths.
 - [Asset planning](#asset-planning)
 - [Workers](#workers)
 - [GPU and browser capabilities](#gpu-and-browser-capabilities)
-- [Zig WASM backend](#zig-wasm-backend)
+- [WASM backend](#wasm-backend)
 - [Error handling](#error-handling)
 - [Development](#development)
 - [Release process](#release-process)
@@ -44,7 +44,7 @@ Use Phantom when you need:
 - A simple public facade for common editing tasks.
 - Lower-level `TileSource` and `TileSink` contracts for custom decoders,
   encoders, storage, or streaming integrations.
-- Optional browser acceleration through workers, WebGPU, or Zig WASM.
+- Optional browser acceleration through workers, WebGPU, or WASM (compiled from Zig).
 - Optional AI background removal that stays outside the core import path.
 
 Start with `phantom.edit(image)` for product features. Drop down to
@@ -77,7 +77,7 @@ npm install git+ssh://git@github.com/ParamissionLab/phantom.git#<release-tag>
 Replace `<release-tag>` with a published Git tag from the repository releases.
 Pin a release tag or full commit SHA instead of `main` so installs remain
 reproducible. Git installs run the package `prepare` script and compile the
-TypeScript build. The Zig WASM binary is not built automatically for Git
+TypeScript build. The WASM binary is not built automatically for Git
 installs; build it explicitly when you need that backend.
 
 ## Runtime Requirements
@@ -93,7 +93,7 @@ installs; build it explicitly when you need that backend.
 | Shared tile memory    | Requires `SharedArrayBuffer`; cross-origin isolation is required in browsers    |
 | WebGPU                | Requires a browser/runtime with `navigator.gpu`                                 |
 | AI background removal | Requires browser image APIs and `@huggingface/transformers` optional dependency |
-| Zig WASM build        | Requires Zig `0.16.0`                                                           |
+| WASM build (Zig)      | Requires Zig `0.16.0`                                                           |
 
 The core import does not initialize WebGPU, workers, WASM, or AI inference.
 
@@ -116,7 +116,7 @@ const output = await phantom
   .filter("smoothEnhance")
   .run();
 
-const plan = await phantom.process(output).plan({ goal: "delivery" });
+const plan = await phantom.edit(output).plan({ goal: "delivery" });
 console.log(plan.encode.format, plan.tileSize);
 ```
 
@@ -205,7 +205,7 @@ WASM paths should match the CPU behavior for the same filter and tile region.
 | `@paramission-lab/phantom`                     | Core facade, raw RGBA utilities, filters, masks, planning, pipeline APIs, and re-exported optional helpers |
 | `@paramission-lab/phantom/ai`                  | Browser AI background-removal facade                                                                       |
 | `@paramission-lab/phantom/gpu`                 | WebGPU compute, WebGPU renderer, WebGL renderer, and capability detection                                  |
-| `@paramission-lab/phantom/wasm`                | Zig WebAssembly loader and kernel adapter types                                                            |
+| `@paramission-lab/phantom/wasm`                | WASM loader (Zig-compiled) and kernel adapter types                                    |
 | `@paramission-lab/phantom/workers`             | `TileWorkerPool` and `SharedTileBuffer`                                                                    |
 | `@paramission-lab/phantom/worker`              | Short browser worker module path for `TileWorkerPool`                                                      |
 | `@paramission-lab/phantom/workers/tile-worker` | Long-form alias for the same worker module                                                                 |
@@ -223,16 +223,16 @@ import phantom from "@paramission-lab/phantom";
 
 | Function                                      | Description                                                   |
 | --------------------------------------------- | ------------------------------------------------------------- |
-| `makeImage(width, height, color?)`            | Allocate a raw RGBA image with an optional fill color         |
+| `createImage(width, height, color?)`          | Allocate a raw RGBA image with an optional fill color         |
 | `edit(image)`                                 | Start a chainable edit pipeline                               |
-| `process(image)`                              | Alias for `edit(image)`                                       |
 | `cropImage(image, rect)`                      | Crop into a new raw RGBA image                                |
 | `resizeImage(image, width, height, options?)` | Resize with `bilinear` by default or `nearest` when requested |
 | `applyFilter(image, filter?, options?)`       | Apply one filter with safe overlap defaults                   |
 | `applyFilters(image, filters, options?)`      | Apply multiple filters in order                               |
 | `applyMask(image, mask, options?)`            | Apply a provider-generated alpha mask                         |
 | `replaceBackground(image, color)`             | Flatten transparent pixels onto a solid RGB color             |
-| `planAsset(image, options?)`                  | Create a processing and encoding recipe                       |
+| `createAssetPlan(image, options?)`            | Create a processing and encoding recipe                       |
+| `useWasm()`                                   | Auto-resolve and initialize `phantom_kernel.wasm`            |
 | `convertImage(input, options?)`               | Convert browser image inputs through canvas encoding          |
 | `optimizeImage(input, options?)`              | Re-encode browser images with conservative defaults           |
 
@@ -368,20 +368,20 @@ keeping the same tile planner, source, sink, progress, and validation path:
 
 ```ts
 import {
-  createZigTileProcessor,
-  instantiateZigBackend,
+  createWasmTileProcessor,
+  instantiateWasmBackend,
   processRawImage,
 } from "@paramission-lab/phantom";
 
 const wasmBytes = await fetch("/phantom_kernel.wasm").then((response) =>
   response.arrayBuffer(),
 );
-const zigBackend = await instantiateZigBackend(wasmBytes);
+const wasmBackend = await instantiateWasmBackend(wasmBytes);
 
 const output = await processRawImage(input, {
   filter: "smoothEnhance",
   overlap: 1,
-  tileProcessor: createZigTileProcessor(zigBackend),
+  tileProcessor: createWasmTileProcessor(wasmBackend),
 });
 ```
 
@@ -426,8 +426,8 @@ await processTileSource({ width: 32000, height: 32000 }, source, sink, {
 ```ts
 import {
   applyAlphaMask,
-  refineAlphaMask,
-  replaceTransparentBackground,
+  featherAlphaMask,
+  fillTransparentWith,
 } from "@paramission-lab/phantom";
 ```
 
@@ -454,6 +454,8 @@ const cutout = applyAlphaMask(input, mask, {
 console.log(cutout.removedPixels, cutout.partialPixels);
 ```
 
+The helper used by `applyAlphaMask` internally is `featherAlphaMask()`.
+
 Mask refinement behavior:
 
 | Option            | Default | Description                                  |
@@ -466,7 +468,7 @@ Mask refinement behavior:
 Flatten transparent pixels onto a background:
 
 ```ts
-const jpegReady = replaceTransparentBackground(cutout, {
+const jpegReady = fillTransparentWith(cutout, {
   r: 255,
   g: 255,
   b: 255,
@@ -549,9 +551,9 @@ const cutout = await ai.removeBackground(imageCanvas, {
 One-call API:
 
 ```ts
-import { removeBackgroundAi } from "@paramission-lab/phantom/ai";
+import { aiRemoveBackground } from "@paramission-lab/phantom/ai";
 
-const result = await removeBackgroundAi(imageCanvas, {
+const result = await aiRemoveBackground(imageCanvas, {
   backend: "auto",
   maskCutoff: 38,
   softness: 54,
@@ -566,9 +568,9 @@ Reuse one loaded model across many images:
 
 ```ts
 import { applyAlphaMask } from "@paramission-lab/phantom";
-import { createPhantomAi } from "@paramission-lab/phantom/ai";
+import { createAiRemover } from "@paramission-lab/phantom/ai";
 
-const remover = createPhantomAi();
+const remover = createAiRemover();
 await remover.preload();
 
 try {
@@ -605,13 +607,13 @@ before selecting a different model.
 
 ## Asset Planning
 
-`createPhantomAssetPlan()` returns a production recipe for filters, tile size,
+`createAssetPlan()` returns a production recipe for filters, tile size,
 memory estimates, and output encoding:
 
 ```ts
-import phantom, { createPhantomAssetPlan } from "@paramission-lab/phantom";
+import phantom, { createAssetPlan } from "@paramission-lab/phantom";
 
-const plan = createPhantomAssetPlan(input, {
+const plan = createAssetPlan(input, {
   goal: "delivery",
   maxWorkerBytes: 32 * 1024 * 1024,
 });
@@ -693,9 +695,9 @@ The GPU package also exports `WebGpuComputeBackend`, `WebGpuRgbaRenderer`, and
 `WebGlRgbaRenderer` for browser integrations that need direct rendering or
 compute control.
 
-## Zig WASM Backend
+## WASM Backend
 
-Build the TypeScript output and Zig kernel:
+Build the TypeScript output and Zig-compiled WASM kernel:
 
 ```bash
 npm run build
@@ -706,25 +708,35 @@ Instantiate the backend:
 
 ```ts
 import {
-  createZigTileProcessor,
-  instantiateZigBackend,
+  createWasmTileProcessor,
+  instantiateWasmBackend,
 } from "@paramission-lab/phantom/wasm";
 
 const bytes = await fetch("/phantom_kernel.wasm").then((response) =>
   response.arrayBuffer(),
 );
 
-const backend = await instantiateZigBackend(bytes);
+const backend = await instantiateWasmBackend(bytes);
 const output = backend.process(input, "grayscale");
-const tileProcessor = createZigTileProcessor(backend);
+const tileProcessor = createWasmTileProcessor(backend);
 ```
 
-The Zig backend supports whole-image processing, tile processing, and alpha-mask
+The WASM backend supports whole-image processing, tile processing, and alpha-mask
 application through the `WasmKernelBackend` interface. Use
-`createZigTileProcessor()` when you want `processRawImage()`,
+`createWasmTileProcessor()` when you want `processRawImage()`,
 `processRawImagePipeline()`, or `processTileSource()` to execute tiles through
-the compiled Zig kernel. The release package ships `dist`; the `zig/` source
+the compiled WASM kernel. The release package ships `dist`; the `zig/` source
 tree is for repository development.
+
+For environments that bundle `phantom_kernel.wasm` next to the compiled JS,
+use the zero-config `useWasm()` helper instead of manually resolving the path:
+
+```ts
+import { useWasm } from "@paramission-lab/phantom";
+
+await useWasm();
+// phantom_kernel.wasm resolved automatically relative to the module
+```
 
 ## Error Handling
 
@@ -762,10 +774,10 @@ Common validation failures:
 | Decoder or caller      | Provides source pixels from browser, Node.js, or a custom decoder |
 | `TileSource`           | Reads bounded rectangular RGBA regions                            |
 | Tile planner           | Splits the image into overlap-safe tile descriptors               |
-| `TileProcessor`        | Executes one tile on CPU, Zig WASM, or another backend            |
+| `TileProcessor`        | Executes one tile on CPU, WASM, or another backend            |
 | CPU kernels            | Provide deterministic filter behavior                             |
 | Worker pool            | Runs transferable tile jobs off the browser main thread           |
-| Zig WASM backend       | Runs compiled kernels from `phantom_kernel.wasm`                  |
+| WASM backend (Zig)     | Runs compiled kernels from `phantom_kernel.wasm`                  |
 | WebGPU compute backend | Accelerates compatible processing in WebGPU runtimes              |
 | AI mask provider       | Creates semantic alpha masks in browser apps                      |
 | `TileSink`             | Writes processed tile output to storage or an encoder             |
@@ -800,7 +812,7 @@ Useful scripts:
 | `npm run build:wasm`    | Compile `zig/src/phantom-kernel.zig` to `dist/phantom_kernel.wasm` |
 | `npm run demo:build`    | Build the demo app to `demo-dist/`                                 |
 | `npm run dev`           | Run the demo app locally                                           |
-| `npm run ci`            | Run typecheck, lint, tests, TypeScript build, and Zig WASM build   |
+| `npm run ci`            | Run typecheck, lint, tests, TypeScript build, and WASM build (Zig)   |
 | `npm run release:patch` | Bump package patch version                                         |
 | `npm run release:minor` | Bump package minor version                                         |
 | `npm run release:major` | Bump package major version                                         |

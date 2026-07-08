@@ -37,10 +37,10 @@ vi.mock("@huggingface/transformers", () => ({
 
 import {
   default as ai,
-  PHANTOM_AI_BACKGROUND_DEFAULTS,
-  createAiBackgroundRemover,
-  removeBackgroundAi,
-  resolveAiMaskRefinementOptions,
+  AI_BACKGROUND_DEFAULTS,
+  createAiRemover,
+  aiRemoveBackground,
+  normalizeAiMaskOptions,
 } from "../src/ai/index.js";
 
 describe("AI background remover", () => {
@@ -49,7 +49,7 @@ describe("AI background remover", () => {
   });
 
   it("shares one model initialization across parallel preload calls", async () => {
-    const remover = createAiBackgroundRemover({ backend: "wasm" });
+    const remover = createAiRemover({ backend: "wasm" });
     const progress = vi.fn();
 
     const [first, second] = await Promise.all([
@@ -69,7 +69,7 @@ describe("AI background remover", () => {
   });
 
   it("reuses a preloaded pipeline for mask inference", async () => {
-    const remover = createAiBackgroundRemover({ backend: "wasm" });
+    const remover = createAiRemover({ backend: "wasm" });
     await remover.preload();
 
     const result = await remover.createMask("image.png");
@@ -81,29 +81,29 @@ describe("AI background remover", () => {
   });
 
   it("uses the same tuned mask defaults as the demo", () => {
-    expect(PHANTOM_AI_BACKGROUND_DEFAULTS).toEqual({
+    expect(AI_BACKGROUND_DEFAULTS).toEqual({
       maskCutoff: 38,
       softness: 54,
       featherRadius: 2,
       subjectGuard: 70,
     });
-    expect(resolveAiMaskRefinementOptions()).toEqual({
+    expect(normalizeAiMaskOptions()).toEqual({
       threshold: 6,
       softness: 54,
       featherRadius: 2,
       edgeSensitivity: 58.5,
     });
     expect(
-      resolveAiMaskRefinementOptions({
+      normalizeAiMaskOptions({
         maskCutoff: 38,
         subjectGuard: 70,
       }),
-    ).toEqual(resolveAiMaskRefinementOptions());
+    ).toEqual(normalizeAiMaskOptions());
   });
 
   it("lets callers override raw alpha refinement values", () => {
     expect(
-      resolveAiMaskRefinementOptions({
+      normalizeAiMaskOptions({
         threshold: 128,
         softness: 12,
         featherRadius: 0,
@@ -124,7 +124,7 @@ describe("AI background remover", () => {
       Uint8ClampedArray.from([10, 20, 30, 255, 40, 50, 60, 255]),
     );
 
-    const result = await removeBackgroundAi(
+    const result = await aiRemoveBackground(
       canvas as unknown as OffscreenCanvas,
       {
         backend: "wasm",

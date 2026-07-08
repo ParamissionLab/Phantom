@@ -1,7 +1,7 @@
 import { getPixelFilterOverlap } from "./filters.js";
 import {
   chooseTileSize,
-  describeProcessingPlan,
+  getProcessingPlan,
   type ProcessingPlanStats,
 } from "./performance.js";
 import {
@@ -42,10 +42,10 @@ export interface PhantomAssetPlan {
 const DEFAULT_WORKER_BYTES = 32 * 1024 * 1024;
 
 /**
- * Phantom Asset Plan is a one-call SDK recipe for choosing filters, tile size,
+ * Builds a one-call SDK recipe for choosing filters, tile size,
  * and output format before running a production image job.
  */
-export function createPhantomAssetPlan(
+export function createAssetPlan(
   image: RawRgbaImage,
   options: PhantomAssetPlanOptions = {},
 ): PhantomAssetPlan {
@@ -61,7 +61,7 @@ export function createPhantomAssetPlan(
     maxBytes: options.maxWorkerBytes ?? DEFAULT_WORKER_BYTES,
     overlap,
   });
-  const processing = describeProcessingPlan(image, {
+  const processing = getProcessingPlan(image, {
     tileSize,
     overlap,
     filter: filters[0] ?? "identity",

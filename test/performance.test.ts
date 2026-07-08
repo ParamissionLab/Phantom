@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   chooseTileSize,
-  describeProcessingPlan,
+  getProcessingPlan,
   estimateRgbaBytes,
   estimateTileScratchBytes,
 } from "../src/index.js";
@@ -28,7 +28,7 @@ describe("performance planning", () => {
   });
 
   it("describes 64K processing with bounded scratch memory", () => {
-    const stats = describeProcessingPlan(
+    const stats = getProcessingPlan(
       { width: 65536, height: 32768 },
       { tileSize: 2048, overlap: 1, workerLanes: 4, filter: "sharpen3x3" },
     );

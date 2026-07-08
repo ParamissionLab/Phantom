@@ -1,19 +1,19 @@
 export {
   FixedByteRingBuffer,
-  streamChunksToFixedBuffer,
+  pipeChunksToBuffer,
 } from "./core/ring-buffer.js";
 export { applyFilterToTile } from "./core/kernels.js";
 export {
   applyAlphaMask,
-  refineAlphaMask,
-  replaceTransparentBackground,
+  featherAlphaMask,
+  fillTransparentWith,
   type AlphaMask,
   type AlphaMaskRefinementOptions,
   type AlphaMaskResult,
   type RgbColor,
 } from "./core/background.js";
 export {
-  createPhantomAssetPlan,
+  createAssetPlan,
   type PhantomAssetGoal,
   type PhantomAssetPlan,
   type PhantomAssetPlanOptions,
@@ -43,7 +43,7 @@ export {
 } from "./core/filters.js";
 export {
   chooseTileSize,
-  describeProcessingPlan,
+  getProcessingPlan,
   estimateRgbaBytes,
   estimateTileScratchBytes,
   type MemoryBudget,
@@ -64,17 +64,16 @@ export {
   applyFilter,
   applyFilters,
   applyMask,
-  autoLevelImage,
+  autoAdjustImage,
   configureWasm,
+  useWasm,
   convertImage,
   cropImage,
+  createImage,
   editImage,
   isWasmReady,
-  makeImage,
   optimizeImage,
   phantom,
-  planAsset,
-  processImage,
   replaceBackground,
   resizeImage,
   watermarkImage,
@@ -98,7 +97,7 @@ export {
   type WatermarkTileMode,
 } from "./core/watermark.js";
 export {
-  autoLevelSuggestion,
+  suggestAutoAdjust,
   computeHistogram,
   type ImageHistogram,
 } from "./core/histogram.js";
@@ -134,18 +133,17 @@ export {
   type ComputeBackend,
 } from "./gpu/index.js";
 export {
-  createZigTileProcessor,
-  instantiateZigBackend,
+  createWasmTileProcessor,
+  instantiateWasmBackend,
   type WasmKernelBackend,
   type WasmKernelExports,
 } from "./wasm/index.js";
 export {
+  AI_BACKGROUND_DEFAULTS,
   BrowserBackgroundRemover,
-  PHANTOM_AI_BACKGROUND_DEFAULTS,
-  createAiBackgroundRemover,
-  createPhantomAi,
-  removeBackgroundAi,
-  resolveAiMaskRefinementOptions,
+  aiRemoveBackground,
+  createAiRemover,
+  normalizeAiMaskOptions,
   type AiBackend,
   type AiBackendPreference,
   type AiBackgroundRemovalOptions,

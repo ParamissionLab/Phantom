@@ -85,9 +85,10 @@ export function estimateTileScratchBytes(
 }
 
 /**
- * Describes a huge-image plan without allocating full-frame memory.
+ * Returns full tiling and memory stats for a huge-image processing job
+ * without allocating full-frame memory.
  */
-export function describeProcessingPlan(
+export function getProcessingPlan(
   dimensions: ImageDimensions,
   options: {
     readonly tileSize: number;

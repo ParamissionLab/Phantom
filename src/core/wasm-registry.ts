@@ -67,6 +67,34 @@ export function setPendingInit(p: Promise<void> | null): void {
 }
 
 // ---------------------------------------------------------------------------
+// Auto-resolver: locate phantom_kernel.wasm relative to THIS module
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns a `URL` that points to `phantom_kernel.wasm` sitting next to this
+ * JS module — the same directory that bundlers (Vite, webpack, Rollup, esbuild)
+ * emit the file into when you run `npm run build`.
+ *
+ * Works in:
+ *   - Browsers served by any bundler (Vite / webpack / Rollup / esbuild)
+ *   - Node.js ESM (Node ≥ 12)
+ *   - Deno / Bun
+ *   - Web Workers
+ *
+ * If `import.meta.url` is unavailable (CJS bundle or very old environment),
+ * the function returns `null` and the caller should fall back to an explicit path.
+ */
+export function resolveKernelUrl(): URL | null {
+  try {
+    // `import.meta.url` is always the URL of THIS compiled JS file.
+    // `phantom_kernel.wasm` is emitted next to it by the build pipeline.
+    return new URL("./phantom_kernel.wasm", import.meta.url);
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Cross-environment byte loader
 // ---------------------------------------------------------------------------
 

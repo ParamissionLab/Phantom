@@ -1,5 +1,5 @@
 import {
-  replaceTransparentBackground,
+  fillTransparentWith,
   type RgbColor,
 } from "./background.js";
 import {
@@ -350,7 +350,7 @@ function rawImageToCanvas(
   const drawable =
     profile.supportsAlpha || background === undefined
       ? image
-      : replaceTransparentBackground(image, background);
+      : fillTransparentWith(image, background);
   const canvas = createCanvas(drawable.width, drawable.height);
   const context = canvas.getContext("2d");
   if (context === null) {

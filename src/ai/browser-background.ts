@@ -65,7 +65,7 @@ interface LoadedEngine {
   readonly backend: AiBackend;
 }
 
-export const PHANTOM_AI_BACKGROUND_DEFAULTS = {
+export const AI_BACKGROUND_DEFAULTS = {
   maskCutoff: 38,
   softness: 54,
   featherRadius: 2,
@@ -202,26 +202,23 @@ export class BrowserBackgroundRemover {
   }
 }
 
-export function createAiBackgroundRemover(
+export function createAiRemover(
   options: AiBackgroundRemoverOptions = {},
 ): BrowserBackgroundRemover {
   return new BrowserBackgroundRemover(options);
 }
 
-/** Short branded alias for createAiBackgroundRemover. */
-export const createPhantomAi = createAiBackgroundRemover;
-
 /**
- * Resolves AI background-removal controls to the alpha-mask refinement options
- * used by `removeBackgroundAi()`. Defaults match the demo's tuned controls.
+ * Normalizes AI background-removal controls to the alpha-mask refinement options
+ * used by `aiRemoveBackground()`. Defaults match the demo's tuned controls.
  */
-export function resolveAiMaskRefinementOptions(
+export function normalizeAiMaskOptions(
   options: AiBackgroundRemovalOptions = {},
 ): AlphaMaskRefinementOptions {
   const maskCutoff =
-    options.maskCutoff ?? PHANTOM_AI_BACKGROUND_DEFAULTS.maskCutoff;
+    options.maskCutoff ?? AI_BACKGROUND_DEFAULTS.maskCutoff;
   const subjectGuard =
-    options.subjectGuard ?? PHANTOM_AI_BACKGROUND_DEFAULTS.subjectGuard;
+    options.subjectGuard ?? AI_BACKGROUND_DEFAULTS.subjectGuard;
 
   if (
     !Number.isFinite(maskCutoff) ||
@@ -240,9 +237,9 @@ export function resolveAiMaskRefinementOptions(
     threshold:
       options.threshold ??
       Math.max(0, maskCutoff - MASK_CUTOFF_THRESHOLD_OFFSET),
-    softness: options.softness ?? PHANTOM_AI_BACKGROUND_DEFAULTS.softness,
+    softness: options.softness ?? AI_BACKGROUND_DEFAULTS.softness,
     featherRadius:
-      options.featherRadius ?? PHANTOM_AI_BACKGROUND_DEFAULTS.featherRadius,
+      options.featherRadius ?? AI_BACKGROUND_DEFAULTS.featherRadius,
     edgeSensitivity:
       options.edgeSensitivity ??
       EDGE_SENSITIVITY_BASE + subjectGuard * EDGE_SENSITIVITY_GUARD_SCALE,
@@ -252,12 +249,12 @@ export function resolveAiMaskRefinementOptions(
 /**
  * One-call AI background removal for browser apps.
  */
-export async function removeBackgroundAi(
+export async function aiRemoveBackground(
   image: BrowserImageInput,
   options: AiBackgroundRemovalOptions = {},
 ): Promise<AiBackgroundRemovalResult> {
   const prepared = await prepareBrowserImage(image);
-  const remover = createAiBackgroundRemover(options);
+  const remover = createAiRemover(options);
 
   try {
     const { mask, backend, model } = await remover.createMask(
@@ -267,7 +264,7 @@ export async function removeBackgroundAi(
     const cutout = applyAlphaMask(
       prepared.rgba,
       mask,
-      resolveAiMaskRefinementOptions(options),
+      normalizeAiMaskOptions(options),
     );
 
     return {

@@ -1,18 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
   PhantomError,
-  createZigTileProcessor,
+  createWasmTileProcessor,
   type WasmKernelBackend,
 } from "../src/index.js";
 
-describe("createZigTileProcessor", () => {
-  it("adapts tile descriptors to Zig WASM tile offsets", async () => {
+describe("createWasmTileProcessor", () => {
+  it("adapts tile descriptors to WASM tile offsets", async () => {
     const calls: unknown[] = [];
     const backend = createFakeBackend((...args) => {
       calls.push(args);
       return Uint8Array.from([1, 2, 3, 4]);
     });
-    const processor = createZigTileProcessor(backend);
+    const processor = createWasmTileProcessor(backend);
 
     const result = await processor.processTile(
       {
@@ -33,7 +33,7 @@ describe("createZigTileProcessor", () => {
   });
 
   it("rejects tile descriptors where output is outside input", () => {
-    const processor = createZigTileProcessor(
+    const processor = createWasmTileProcessor(
       createFakeBackend(() => new Uint8Array(4)),
     );
 

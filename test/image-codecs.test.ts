@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   canEncodeImageFormat,
-  createPhantomAssetPlan,
+  createAssetPlan,
   getImageFormatProfile,
   listImageFormats,
   normalizeImageFormat,
@@ -34,9 +34,9 @@ describe("image format helpers", () => {
   });
 });
 
-describe("Phantom asset plan", () => {
+describe("Asset plan", () => {
   it("chooses delivery defaults for opaque images", () => {
-    const plan = createPhantomAssetPlan(sampleImage(255));
+    const plan = createAssetPlan(sampleImage(255));
 
     expect(plan.encode).toMatchObject({ format: "jpeg", quality: 0.92 });
     expect(plan.filters).toEqual(["smoothEnhance"]);
@@ -45,7 +45,7 @@ describe("Phantom asset plan", () => {
   });
 
   it("keeps transparent cutouts in an alpha-capable format", () => {
-    const plan = createPhantomAssetPlan(sampleImage(128), {
+    const plan = createAssetPlan(sampleImage(128), {
       goal: "transparent-cutout",
     });
 

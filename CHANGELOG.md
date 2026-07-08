@@ -5,6 +5,44 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.3] - 2026-07-08
+
+### Added
+
+- Added `createImage()` as a clearer named alternative to `makeImage()`.
+- Added `createAssetPlan()` and `getProcessingPlan()` as descriptive named
+  alternatives to `createPhantomAssetPlan()` and `describeProcessingPlan()`.
+- Added `aiRemoveBackground()` and `createAiRemover()` as shorter aliases for
+  `removeBackgroundAi()` and `createPhantomAi()`.
+- Added `fillTransparentWith()` and `featherAlphaMask()` as clearer alternative
+  names for `replaceTransparentBackground()` and `refineAlphaMask()`.
+- Added `normalizeAiMaskOptions()` as the clearer name for
+  `resolveAiMaskRefinementOptions()`.
+- Added `suggestAutoAdjust()` and `autoAdjustImage()` as clearer names for
+  `autoLevelSuggestion()` and `autoLevelImage()`.
+- Added `pipeChunksToBuffer()` as the clearer name for
+  `streamChunksToFixedBuffer()`.
+- Added `instantiateWasmBackend()` and `createWasmTileProcessor()` as the portable
+  names for `instantiateZigBackend()` and `createZigTileProcessor()`.
+- Added `useWasm()` convenience wrapper that auto-resolves the WASM kernel URL
+  via `import.meta.url`.
+- Added `resolveKernelUrl()` to `wasm-registry.ts` for external callers that need
+  to locate `phantom_kernel.wasm`.
+
+### Changed
+
+- Removed old `Phantom`-branded aliases (`createPhantomAssetPlan`, `planAsset`,
+  `makeImage`, `processImage`, `describeProcessingPlan`, `autoLevelImage`,
+  `autoLevelSuggestion`, `replaceTransparentBackground`, `refineAlphaMask`,
+  `streamChunksToFixedBuffer`, `instantiateZigBackend`, `createZigTileProcessor`,
+  `createPhantomAi`, `removeBackgroundAi`, `resolveAiMaskRefinementOptions`,
+  `PHANTOM_AI_BACKGROUND_DEFAULTS`, `phantom.process`). Use the shorter portable
+  names listed in the "Added" section instead.
+- Renamed `AI_BACKGROUND_DEFAULTS` constant from `PHANTOM_AI_BACKGROUND_DEFAULTS`.
+- `resolveKernelUrl()` returns a `URL | null` and is safe to call in any JS
+  environment.
+- Updated `package.json` version to `1.0.3`.
+
 ## [1.0.2] - 2026-07-04
 
 ### Added
@@ -221,7 +259,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Unrolled packed Zig invert and grayscale loops and reused 3x3 neighbor indexes in enhancement kernels.
 - Added native Zig alpha-mask compositing.
 
-[Unreleased]: https://github.com/ParamissionLab/phantom/compare/v1.0.2...HEAD
+[Unreleased]: https://github.com/ParamissionLab/phantom/compare/v1.0.3...HEAD
+[1.0.3]: https://github.com/ParamissionLab/phantom/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/ParamissionLab/phantom/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/ParamissionLab/phantom/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/ParamissionLab/phantom/compare/v0.1.0...v1.0.0
