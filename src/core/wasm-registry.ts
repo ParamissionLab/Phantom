@@ -83,10 +83,16 @@ export function setPendingInit(p: Promise<void> | null): void {
  */
 export function resolveKernelUrl(): URL | null {
   try {
-    // `import.meta.url` is always the URL of THIS compiled JS file.
-    // `phantom_kernel.wasm` is emitted next to it by the build pipeline.
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    return new URL(/* @vite-ignore */ "./phantom_kernel.wasm", import.meta.url);
+    // Build the path via concatenation so that ALL bundlers (Vite, webpack,
+    // Rollup, esbuild, Parcel …) skip static-asset analysis on this string.
+    // Bundlers only recognize the `new URL("<literal>", import.meta.url)`
+    // pattern when the first argument is a bare string literal; a "+" expression
+    // is always treated as runtime-dynamic and left untouched — no bundler-
+    //
+    // `phantom_kernel.wasm` is emitted next to this JS file by the build
+    // pipeline and resolved at runtime via `import.meta.url`.
+    const wasmFile = "phantom_kernel" + ".wasm";
+    return new URL("./" + wasmFile, import.meta.url);
   } catch {
     return null;
   }
