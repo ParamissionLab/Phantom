@@ -32,10 +32,14 @@ export interface ImageHistogram {
 export function computeHistogram(image: RawRgbaImage): ImageHistogram {
   assertRgbaLength(image);
 
-  const r = new Uint32Array(256);
-  const g = new Uint32Array(256);
-  const b = new Uint32Array(256);
-  const luma = new Uint32Array(256);
+  // Single contiguous allocation improves L1 cache locality during the
+  // accumulation loop — four disjoint Uint32Array(256) allocations would
+  // walk four separate heap regions.
+  const hist = new Uint32Array(1024);
+  const r = hist.subarray(0, 256);
+  const g = hist.subarray(256, 512);
+  const b = hist.subarray(512, 768);
+  const luma = hist.subarray(768, 1024);
   const pixelCount = image.width * image.height;
 
   // Single-pass: accumulate all channels simultaneously

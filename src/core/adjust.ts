@@ -98,23 +98,33 @@ export function adjustRawImage(
       output[i + 3] = image.data[i + 3]!;
     }
   } else {
-    // HSL path: convert to HSL, apply hue/sat, convert back, then apply LUTs
-    const satScale = 1 + saturation / 100;
-    const hueRad = (hue / 180) * Math.PI;
+    // Hue + saturation path — replaces per-pixel HSL round-trip with a
+    // precomputed 3×3 fixed-point matrix (hue rotation × saturation scaling).
+    //
+    // Hue rotation around the achromatic axis (1,1,1)/√3 by angle θ:
+    //   M_hue = I·cosθ + (1-cosθ)·(1/3)·ones + sinθ·cross_product_matrix
+    // Saturation scaling (lerp toward luma):
+    //   M_sat = satScale·I + (1-satScale)·luma_row_vector
+    //
+    // Combined M = M_sat × M_hue (applied as integer fixed-point multiply-shifts).
+    // Precomputed once (256 multiplies), then 9 fixed-point multiplies per pixel
+    // instead of full HSL round-trip (dozens of floats + branches + trig).
+    const m = buildHueSatMatrix(hue, saturation);
+    // m = [m00,m01,m02, m10,m11,m12, m20,m21,m22] — row-major, fixed-point Q8
 
     for (let i = 0; i < image.data.length; i += RGBA_CHANNELS) {
-      const r = image.data[i]! / 255;
-      const g = image.data[i + 1]! / 255;
-      const b = image.data[i + 2]! / 255;
+      const r = image.data[i]!;
+      const g = image.data[i + 1]!;
+      const b = image.data[i + 2]!;
 
-      const [h, s, l] = rgbToHsl(r, g, b);
-      const newH = (((h + hueRad / (2 * Math.PI)) % 1) + 1) % 1;
-      const newS = Math.min(1, Math.max(0, s * satScale));
-      const [nr, ng, nb] = hslToRgb(newH, newS, l);
+      // Apply 3×3 matrix in fixed-point Q8 (>> 8 divides by 256)
+      const nr = clampU8((m[0]! * r + m[1]! * g + m[2]! * b) >> 8);
+      const ng = clampU8((m[3]! * r + m[4]! * g + m[5]! * b) >> 8);
+      const nb = clampU8((m[6]! * r + m[7]! * g + m[8]! * b) >> 8);
 
-      output[i] = lutR[clampU8(Math.round(nr * 255))]!;
-      output[i + 1] = lutG[clampU8(Math.round(ng * 255))]!;
-      output[i + 2] = lutB[clampU8(Math.round(nb * 255))]!;
+      output[i] = lutR[nr]!;
+      output[i + 1] = lutG[ng]!;
+      output[i + 2] = lutB[nb]!;
       output[i + 3] = image.data[i + 3]!;
     }
   }
@@ -148,54 +158,78 @@ function buildLut(
 }
 
 // ---------------------------------------------------------------------------
-// HSL conversions
+// Hue + saturation — combined 3×3 fixed-point matrix
 // ---------------------------------------------------------------------------
+//
+// Hue rotation in RGB space: rotate around the achromatic axis (1,1,1)/√3.
+// Using Rodrigues' rotation formula for axis u=(1,1,1)/√3 and angle θ:
+//
+//   M_hue[i][j] = cosθ·δij + (1-cosθ)·(1/3) + sinθ·ε_ijk·(1/√3)
+//
+// Cross-product matrix for u=(1,1,1)/√3:
+//   [  0  -1/√3  1/√3 ]
+//   [ 1/√3  0   -1/√3 ]
+//   [-1/√3  1/√3  0   ]
+//
+// Saturation scaling (mix toward perceived luma using BT.601 weights):
+//   luma = 0.299r + 0.587g + 0.114b
+//   out_ch = luma + (in_ch - luma) * satScale
+//         = satScale·in_ch + (1-satScale)·luma·ones_vec
+//
+// M_sat = satScale·I + (1-satScale)·[0.299, 0.587, 0.114; ...]
+//
+// Combined: M = M_sat × M_hue (float → then encode as Q8 integer, ×256)
+//
+function buildHueSatMatrix(hueDeg: number, saturation: number): Int32Array {
+  const theta = (hueDeg / 180) * Math.PI;
+  const cosT = Math.cos(theta);
+  const sinT = Math.sin(theta);
+  const inv3 = 1 / 3;
+  const k = sinT / Math.sqrt(3);
 
-function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
-  const max = Math.max(r, g, b);
-  const min = Math.min(r, g, b);
-  const l = (max + min) / 2;
+  // 3×3 hue rotation matrix (row-major)
+  const h00 = cosT + (1 - cosT) * inv3;
+  const h01 = (1 - cosT) * inv3 - k;
+  const h02 = (1 - cosT) * inv3 + k;
+  const h10 = (1 - cosT) * inv3 + k;
+  const h11 = cosT + (1 - cosT) * inv3;
+  const h12 = (1 - cosT) * inv3 - k;
+  const h20 = (1 - cosT) * inv3 - k;
+  const h21 = (1 - cosT) * inv3 + k;
+  const h22 = cosT + (1 - cosT) * inv3;
 
-  if (max === min) {
-    return [0, 0, l];
-  }
+  // Saturation scaling: out = satScale * color + (1 - satScale) * luma
+  // BT.601 luma weights
+  const LR = 0.299;
+  const LG = 0.587;
+  const LB = 0.114;
+  const satScale = Math.max(0, 1 + saturation / 100);
+  const oneMinusSat = 1 - satScale;
 
-  const d = max - min;
-  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-  let h: number;
+  // M_sat rows: [satScale + (1-satScale)*Lx, (1-satScale)*Ly, ...]
+  const s00 = satScale + oneMinusSat * LR;
+  const s01 = oneMinusSat * LG;
+  const s02 = oneMinusSat * LB;
+  const s10 = oneMinusSat * LR;
+  const s11 = satScale + oneMinusSat * LG;
+  const s12 = oneMinusSat * LB;
+  const s20 = oneMinusSat * LR;
+  const s21 = oneMinusSat * LG;
+  const s22 = satScale + oneMinusSat * LB;
 
-  if (max === r) {
-    h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
-  } else if (max === g) {
-    h = ((b - r) / d + 2) / 6;
-  } else {
-    h = ((r - g) / d + 4) / 6;
-  }
-
-  return [h, s, l];
-}
-
-function hslToRgb(h: number, s: number, l: number): [number, number, number] {
-  if (s === 0) {
-    return [l, l, l];
-  }
-
-  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-  const p = 2 * l - q;
-
-  return [
-    hueToRgbChannel(p, q, h + 1 / 3),
-    hueToRgbChannel(p, q, h),
-    hueToRgbChannel(p, q, h - 1 / 3),
-  ];
-}
-
-function hueToRgbChannel(p: number, q: number, t: number): number {
-  const tn = ((t % 1) + 1) % 1;
-  if (tn < 1 / 6) return p + (q - p) * 6 * tn;
-  if (tn < 1 / 2) return q;
-  if (tn < 2 / 3) return p + (q - p) * (2 / 3 - tn) * 6;
-  return p;
+  // Combined M = M_sat × M_hue
+  const SCALE = 256; // Q8 fixed-point
+  const m = new Int32Array(9);
+  m[0] = Math.round((s00 * h00 + s01 * h10 + s02 * h20) * SCALE);
+  m[1] = Math.round((s00 * h01 + s01 * h11 + s02 * h21) * SCALE);
+  m[2] = Math.round((s00 * h02 + s01 * h12 + s02 * h22) * SCALE);
+  m[3] = Math.round((s10 * h00 + s11 * h10 + s12 * h20) * SCALE);
+  m[4] = Math.round((s10 * h01 + s11 * h11 + s12 * h21) * SCALE);
+  m[5] = Math.round((s10 * h02 + s11 * h12 + s12 * h22) * SCALE);
+  m[6] = Math.round((s20 * h00 + s21 * h10 + s22 * h20) * SCALE);
+  m[7] = Math.round((s20 * h01 + s21 * h11 + s22 * h21) * SCALE);
+  m[8] = Math.round((s20 * h02 + s21 * h12 + s22 * h22) * SCALE);
+  return m;
 }
 
 // ---------------------------------------------------------------------------

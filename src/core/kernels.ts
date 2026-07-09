@@ -36,6 +36,7 @@ const UNSHARP_SHIFT = 3;
 export function applyFilterToTile(
   payload: TilePayload,
   filter: PixelFilter,
+  outputBuffer?: Uint8Array,
 ): TileResult {
   const { descriptor, rgba } = payload;
   const expected =
@@ -47,9 +48,14 @@ export function applyFilterToTile(
     );
   }
 
-  const output = new Uint8Array(
-    descriptor.output.width * descriptor.output.height * RGBA_CHANNELS,
-  );
+  const outputBytes =
+    descriptor.output.width * descriptor.output.height * RGBA_CHANNELS;
+  // Use the caller-supplied buffer when provided (avoids per-tile allocation);
+  // fall back to a fresh allocation for callers that don't supply one.
+  const output =
+    outputBuffer !== undefined && outputBuffer.length >= outputBytes
+      ? outputBuffer.subarray(0, outputBytes)
+      : new Uint8Array(outputBytes);
 
   switch (filter) {
     case "identity":
@@ -292,6 +298,22 @@ function grayscaleCore(
   }
 }
 
+/**
+ * Separable smoothEnhance / unsharpMask kernel — 2-pass weighted blur.
+ *
+ * The 3×3 kernel weights are:  1 2 1        which factors as:
+ *                               2 4 2    =   [1,2,1]^T × [1,2,1]
+ *                               1 2 1
+ * Sum = 16 (divisor).
+ *
+ * Pass 1 (horizontal): for each pixel store sum = left + 2*center + right
+ *   into a Uint16Array temp (max value: 255*4 = 1020 — fits in u16).
+ * Pass 2 (vertical + detail): blur = (above_h + 2*center_h + below_h) >> 4,
+ *   then output = clamp(center + (center - blur) * N >> S).
+ *
+ * This reduces reads from 9 per output pixel to 6 (3 in each pass),
+ * saves ~33% memory bandwidth and enables better branch prediction.
+ */
 function smoothEnhanceCore(
   input: Uint8Array,
   inputRect: Rect,
@@ -303,77 +325,105 @@ function smoothEnhanceCore(
   const inputWidth = inputRect.width;
   const inputHeight = inputRect.height;
   const outputWidth = outputRect.width;
+  const outputHeight = outputRect.height;
   const offsetX = outputRect.x - inputRect.x;
   const offsetY = outputRect.y - inputRect.y;
   const inputStride = inputWidth * RGBA_CHANNELS;
   const maxX = inputWidth - 1;
   const maxY = inputHeight - 1;
 
-  let outputIndex = 0;
+  // Temp buffer covers the output columns for the vertical range that is
+  // needed: outputRect rows ± 1 (clamped), same as boxBlurSeparable.
+  const tempStartY = clampInt(offsetY - 1, 0, maxY);
+  const tempEndY = clampInt(offsetY + outputHeight, 0, maxY);
+  const actualTempHeight = tempEndY - tempStartY + 1;
+  const tempStride = outputWidth * RGBA_CHANNELS;
 
-  for (let y = 0; y < outputRect.height; y += 1) {
-    const sourceY = offsetY + y;
-    const rowAbove = clampInt(sourceY - 1, 0, maxY) * inputStride;
-    const rowCenter = sourceY * inputStride;
-    const rowBelow = clampInt(sourceY + 1, 0, maxY) * inputStride;
+  // Uint16Array: horizontal sums reach 255 * 4 = 1020, fits in u16.
+  const temp = new Uint16Array(actualTempHeight * tempStride);
+
+  // ── Pass 1: horizontal weighted sum (left + 2*center + right) ────────────
+  for (let ty = 0; ty < actualTempHeight; ty += 1) {
+    const srcY = tempStartY + ty;
+    const srcRowBase = srcY * inputStride;
+    const tempRowBase = ty * tempStride;
 
     for (let x = 0; x < outputWidth; x += 1) {
       const sourceX = offsetX + x;
       const colLeft = clampInt(sourceX - 1, 0, maxX) * RGBA_CHANNELS;
       const colCenter = sourceX * RGBA_CHANNELS;
       const colRight = clampInt(sourceX + 1, 0, maxX) * RGBA_CHANNELS;
+      const tBase = tempRowBase + x * RGBA_CHANNELS;
 
-      // CHANNEL-UNROLLED: no ch loop — direct R/G/B with zero loop overhead
-      // Red channel
-      const rTL = input[rowAbove + colLeft]!;
-      const rTC = input[rowAbove + colCenter]!;
-      const rTR = input[rowAbove + colRight]!;
-      const rML = input[rowCenter + colLeft]!;
-      const rMC = input[rowCenter + colCenter]!;
-      const rMR = input[rowCenter + colRight]!;
-      const rBL = input[rowBelow + colLeft]!;
-      const rBC = input[rowBelow + colCenter]!;
-      const rBR = input[rowBelow + colRight]!;
+      // weighted: left*1 + center*2 + right*1
+      temp[tBase] =
+        input[srcRowBase + colLeft]! +
+        input[srcRowBase + colCenter]! * 2 +
+        input[srcRowBase + colRight]!;
+      temp[tBase + 1] =
+        input[srcRowBase + colLeft + 1]! +
+        input[srcRowBase + colCenter + 1]! * 2 +
+        input[srcRowBase + colRight + 1]!;
+      temp[tBase + 2] =
+        input[srcRowBase + colLeft + 2]! +
+        input[srcRowBase + colCenter + 2]! * 2 +
+        input[srcRowBase + colRight + 2]!;
+      temp[tBase + 3] = input[srcRowBase + colCenter + 3]!; // alpha passthrough
+    }
+  }
+
+  // ── Pass 2: vertical weighted sum + detail enhancement ───────────────────
+  // Vertical sum: above*1 + center*2 + below*1, then divide by 16.
+  // Combined with detail: output = clamp(center + (center - blur) * N >> S).
+  let outputIndex = 0;
+  for (let y = 0; y < outputHeight; y += 1) {
+    const tempYCenter = offsetY + y - tempStartY;
+    const tempYAbove = clampInt(tempYCenter - 1, 0, actualTempHeight - 1);
+    const tempYBelow = clampInt(tempYCenter + 1, 0, actualTempHeight - 1);
+    const tAboveBase = tempYAbove * tempStride;
+    const tCenterBase = tempYCenter * tempStride;
+    const tBelowBase = tempYBelow * tempStride;
+
+    // Also need the original center pixel values for detail = center - blur.
+    // Read from input using the center row.
+    const srcY = offsetY + y;
+    const inputCenterRow = srcY * inputStride;
+
+    for (let x = 0; x < outputWidth; x += 1) {
+      const tOff = x * RGBA_CHANNELS;
+      const inputCenterCol = (offsetX + x) * RGBA_CHANNELS;
+
+      // Vertical weighted sum: above*1 + center*2 + below*1 (total ÷ 16)
       const rBlur =
-        (rTL + rTR + rBL + rBR + (rTC + rBC + rML + rMR) * 2 + rMC * 4) >> 4;
+        (temp[tAboveBase + tOff]! +
+          temp[tCenterBase + tOff]! * 2 +
+          temp[tBelowBase + tOff]!) >>
+        4;
+      const gBlur =
+        (temp[tAboveBase + tOff + 1]! +
+          temp[tCenterBase + tOff + 1]! * 2 +
+          temp[tBelowBase + tOff + 1]!) >>
+        4;
+      const bBlur =
+        (temp[tAboveBase + tOff + 2]! +
+          temp[tCenterBase + tOff + 2]! * 2 +
+          temp[tBelowBase + tOff + 2]!) >>
+        4;
+
+      const rMC = input[inputCenterRow + inputCenterCol]!;
+      const gMC = input[inputCenterRow + inputCenterCol + 1]!;
+      const bMC = input[inputCenterRow + inputCenterCol + 2]!;
+
       output[outputIndex] = clampU8(
         rMC + (((rMC - rBlur) * detailNumerator) >> detailShift),
       );
-
-      // Green channel
-      const gTL = input[rowAbove + colLeft + 1]!;
-      const gTC = input[rowAbove + colCenter + 1]!;
-      const gTR = input[rowAbove + colRight + 1]!;
-      const gML = input[rowCenter + colLeft + 1]!;
-      const gMC = input[rowCenter + colCenter + 1]!;
-      const gMR = input[rowCenter + colRight + 1]!;
-      const gBL = input[rowBelow + colLeft + 1]!;
-      const gBC = input[rowBelow + colCenter + 1]!;
-      const gBR = input[rowBelow + colRight + 1]!;
-      const gBlur =
-        (gTL + gTR + gBL + gBR + (gTC + gBC + gML + gMR) * 2 + gMC * 4) >> 4;
       output[outputIndex + 1] = clampU8(
         gMC + (((gMC - gBlur) * detailNumerator) >> detailShift),
       );
-
-      // Blue channel
-      const bTL = input[rowAbove + colLeft + 2]!;
-      const bTC = input[rowAbove + colCenter + 2]!;
-      const bTR = input[rowAbove + colRight + 2]!;
-      const bML = input[rowCenter + colLeft + 2]!;
-      const bMC = input[rowCenter + colCenter + 2]!;
-      const bMR = input[rowCenter + colRight + 2]!;
-      const bBL = input[rowBelow + colLeft + 2]!;
-      const bBC = input[rowBelow + colCenter + 2]!;
-      const bBR = input[rowBelow + colRight + 2]!;
-      const bBlur =
-        (bTL + bTR + bBL + bBR + (bTC + bBC + bML + bMR) * 2 + bMC * 4) >> 4;
       output[outputIndex + 2] = clampU8(
         bMC + (((bMC - bBlur) * detailNumerator) >> detailShift),
       );
-
-      // Alpha passthrough
-      output[outputIndex + 3] = input[rowCenter + colCenter + 3]!;
+      output[outputIndex + 3] = temp[tCenterBase + tOff + 3]!;
       outputIndex += RGBA_CHANNELS;
     }
   }

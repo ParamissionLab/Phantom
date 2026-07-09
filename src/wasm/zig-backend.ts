@@ -65,9 +65,21 @@ export function createWasmTileProcessor(
 
 class ZigWasmBackend implements WasmKernelBackend {
   public readonly memory: WebAssembly.Memory;
+  // Cached heap view — reused across processTile calls to avoid per-tile
+  // Uint8Array wrapper allocation. Invalidated when memory.grow() is called
+  // (the ArrayBuffer reference changes after grow).
+  private heapCache: Uint8Array | null = null;
 
   public constructor(private readonly exports: WasmKernelExports) {
     this.memory = exports.memory;
+  }
+
+  private getHeap(): Uint8Array {
+    // memory.buffer is replaced after every grow(); check reference equality.
+    if (this.heapCache === null || this.heapCache.buffer !== this.memory.buffer) {
+      this.heapCache = new Uint8Array(this.memory.buffer);
+    }
+    return this.heapCache;
   }
 
   public process(
@@ -81,7 +93,7 @@ class ZigWasmBackend implements WasmKernelBackend {
     const outputPtr = byteLength;
     this.ensureCapacity(byteLength * 2);
 
-    const heap = new Uint8Array(this.memory.buffer);
+    const heap = this.getHeap();
     heap.set(image.data, inputPtr);
 
     switch (filter) {
@@ -180,7 +192,7 @@ class ZigWasmBackend implements WasmKernelBackend {
     const outputPtr = input.length;
     this.ensureCapacity(input.length + outputBytes);
 
-    const heap = new Uint8Array(this.memory.buffer);
+    const heap = this.getHeap();
     heap.set(input, inputPtr);
     this.exports.rgba_filter_tile(
       inputPtr,
@@ -214,7 +226,7 @@ class ZigWasmBackend implements WasmKernelBackend {
     const outputPtr = maskPtr + mask.length;
     const outputLength = image.data.length;
     this.ensureCapacity(outputPtr + outputLength);
-    const heap = new Uint8Array(this.memory.buffer);
+    const heap = this.getHeap();
     heap.set(image.data, inputPtr);
     heap.set(mask, maskPtr);
     this.exports.rgba_apply_alpha_mask(inputPtr, maskPtr, outputPtr, pixels);
@@ -238,6 +250,8 @@ class ZigWasmBackend implements WasmKernelBackend {
     const missingBytes = requiredBytes - this.memory.buffer.byteLength;
     const pages = Math.ceil(missingBytes / PAGE_SIZE_BYTES);
     this.memory.grow(pages);
+    // Invalidate cached heap view — memory.grow() replaces the ArrayBuffer.
+    this.heapCache = null;
   }
 }
 

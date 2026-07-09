@@ -192,6 +192,11 @@ function resizeNearest(input: RawRgbaImage, output: RawRgbaImage): void {
  * This reduces work from O(outW × outH × 4 samples) to O(outW × inH × 2 + outW × outH × 2).
  * For large images, this is significantly faster because each pass only interpolates in 1D.
  */
+// Number of output rows processed per band. Controls the trade-off between
+// peak temp-buffer memory and loop overhead. 128 rows → temp ≤ 128×inH×outW×4
+// bytes per band, which keeps peak allocation well under the full-frame size.
+const BILINEAR_BAND_HEIGHT = 128;
+
 function resizeBilinear(input: RawRgbaImage, output: RawRgbaImage): void {
   const outW = output.width;
   const outH = output.height;
@@ -207,7 +212,7 @@ function resizeBilinear(input: RawRgbaImage, output: RawRgbaImage): void {
   const maxXi = inW - 1;
   const maxYi = inH - 1;
 
-  // Precompute X interpolation coefficients (shared across both passes)
+  // Precompute X interpolation coefficients (shared across all bands)
   const xCoeffs = new Uint32Array(outW * 3); // [x0_offset, x1_offset, fx_fixed8]
   for (let x = 0; x < outW; x += 1) {
     const srcX = Math.max(0, (x + 0.5) * scaleX - 0.5);
@@ -220,63 +225,89 @@ function resizeBilinear(input: RawRgbaImage, output: RawRgbaImage): void {
     xCoeffs[base + 2] = fx;
   }
 
-  // Pass 1: Horizontal interpolation — produce temp[inH × outW]
-  // Each row of temp has outW pixels, interpolated horizontally from input
   const tempStride = outW * RGBA_CHANNELS;
-  const temp = new Uint8Array(inH * tempStride);
 
-  for (let y = 0; y < inH; y += 1) {
-    const srcRowBase = y * inStride;
-    const tmpRowBase = y * tempStride;
+  // Process output in horizontal bands to cap peak temp-buffer memory.
+  // For each band: horizontally interpolate only the input rows needed by
+  // that band, then vertically interpolate into the output band.
+  for (
+    let bandStart = 0;
+    bandStart < outH;
+    bandStart += BILINEAR_BAND_HEIGHT
+  ) {
+    const bandEnd = Math.min(bandStart + BILINEAR_BAND_HEIGHT, outH);
 
-    for (let x = 0; x < outW; x += 1) {
-      const cBase = x * 3;
-      const x0off = xCoeffs[cBase]!;
-      const x1off = xCoeffs[cBase + 1]!;
-      const fx = xCoeffs[cBase + 2]!;
-      const invFx = 256 - fx;
+    // Determine which input rows are needed for this output band.
+    // Output row bandStart samples input at y0 = floor(srcY), and row bandEnd-1
+    // may sample y0+1. Clamp to [0, inH-1].
+    const srcYFirst = Math.max(
+      0,
+      (bandStart + 0.5) * scaleY - 0.5,
+    ) | 0;
+    const srcYLastRaw = (bandEnd - 1 + 0.5) * scaleY - 0.5;
+    const srcYLast = Math.min(maxYi, (srcYLastRaw | 0) + 1);
+    const bandInRows = srcYLast - srcYFirst + 1;
 
-      const si0 = srcRowBase + x0off;
-      const si1 = srcRowBase + x1off;
-      const ti = tmpRowBase + x * RGBA_CHANNELS;
+    // Allocate temp only for the needed input rows.
+    const temp = new Uint8Array(bandInRows * tempStride);
 
-      // 1D horizontal lerp — channel unrolled
-      temp[ti] = (inputData[si0]! * invFx + inputData[si1]! * fx + 128) >> 8;
-      temp[ti + 1] =
-        (inputData[si0 + 1]! * invFx + inputData[si1 + 1]! * fx + 128) >> 8;
-      temp[ti + 2] =
-        (inputData[si0 + 2]! * invFx + inputData[si1 + 2]! * fx + 128) >> 8;
-      temp[ti + 3] =
-        (inputData[si0 + 3]! * invFx + inputData[si1 + 3]! * fx + 128) >> 8;
+    // Pass 1: horizontal interpolation for needed input rows into temp.
+    for (let ti = 0; ti < bandInRows; ti += 1) {
+      const srcY = srcYFirst + ti;
+      const srcRowBase = srcY * inStride;
+      const tmpRowBase = ti * tempStride;
+
+      for (let x = 0; x < outW; x += 1) {
+        const cBase = x * 3;
+        const x0off = xCoeffs[cBase]!;
+        const x1off = xCoeffs[cBase + 1]!;
+        const fx = xCoeffs[cBase + 2]!;
+        const invFx = 256 - fx;
+
+        const si0 = srcRowBase + x0off;
+        const si1 = srcRowBase + x1off;
+        const tBase = tmpRowBase + x * RGBA_CHANNELS;
+
+        // 1D horizontal lerp — channel unrolled
+        temp[tBase] =
+          (inputData[si0]! * invFx + inputData[si1]! * fx + 128) >> 8;
+        temp[tBase + 1] =
+          (inputData[si0 + 1]! * invFx + inputData[si1 + 1]! * fx + 128) >> 8;
+        temp[tBase + 2] =
+          (inputData[si0 + 2]! * invFx + inputData[si1 + 2]! * fx + 128) >> 8;
+        temp[tBase + 3] =
+          (inputData[si0 + 3]! * invFx + inputData[si1 + 3]! * fx + 128) >> 8;
+      }
     }
-  }
 
-  // Pass 2: Vertical interpolation — read from temp[inH × outW], write to output[outH × outW]
-  for (let y = 0; y < outH; y += 1) {
-    const srcY = Math.max(0, (y + 0.5) * scaleY - 0.5);
-    const y0 = Math.min(maxYi, srcY | 0);
-    const y1 = Math.min(maxYi, y0 + 1);
-    const fy = ((srcY - y0) * 256) | 0;
-    const invFy = 256 - fy;
+    // Pass 2: vertical interpolation for this band's output rows.
+    for (let y = bandStart; y < bandEnd; y += 1) {
+      const srcY = Math.max(0, (y + 0.5) * scaleY - 0.5);
+      const y0 = Math.min(maxYi, srcY | 0);
+      const y1 = Math.min(maxYi, y0 + 1);
+      const fy = ((srcY - y0) * 256) | 0;
+      const invFy = 256 - fy;
 
-    const row0Base = y0 * tempStride;
-    const row1Base = y1 * tempStride;
-    const outRowBase = y * outStride;
+      // Translate global input rows to band-local temp indices.
+      const row0Base = (y0 - srcYFirst) * tempStride;
+      const row1Base = (y1 - srcYFirst) * tempStride;
+      const outRowBase = y * outStride;
 
-    for (let x = 0; x < outW; x += 1) {
-      const tOff = x * RGBA_CHANNELS;
-      const ti0 = row0Base + tOff;
-      const ti1 = row1Base + tOff;
-      const oi = outRowBase + tOff;
+      for (let x = 0; x < outW; x += 1) {
+        const tOff = x * RGBA_CHANNELS;
+        const ti0 = row0Base + tOff;
+        const ti1 = row1Base + tOff;
+        const oi = outRowBase + tOff;
 
-      // 1D vertical lerp — channel unrolled
-      outputData[oi] = (temp[ti0]! * invFy + temp[ti1]! * fy + 128) >> 8;
-      outputData[oi + 1] =
-        (temp[ti0 + 1]! * invFy + temp[ti1 + 1]! * fy + 128) >> 8;
-      outputData[oi + 2] =
-        (temp[ti0 + 2]! * invFy + temp[ti1 + 2]! * fy + 128) >> 8;
-      outputData[oi + 3] =
-        (temp[ti0 + 3]! * invFy + temp[ti1 + 3]! * fy + 128) >> 8;
+        // 1D vertical lerp — channel unrolled
+        outputData[oi] = (temp[ti0]! * invFy + temp[ti1]! * fy + 128) >> 8;
+        outputData[oi + 1] =
+          (temp[ti0 + 1]! * invFy + temp[ti1 + 1]! * fy + 128) >> 8;
+        outputData[oi + 2] =
+          (temp[ti0 + 2]! * invFy + temp[ti1 + 2]! * fy + 128) >> 8;
+        outputData[oi + 3] =
+          (temp[ti0 + 3]! * invFy + temp[ti1 + 3]! * fy + 128) >> 8;
+      }
     }
   }
 }

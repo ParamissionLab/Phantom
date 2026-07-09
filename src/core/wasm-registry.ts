@@ -77,18 +77,16 @@ export function setPendingInit(p: Promise<void> | null): void {
  *
  * Works in:
  *   - Browsers served by any bundler (Vite / webpack / Rollup / esbuild)
- *   - Node.js ESM (Node ≥ 12)
+ *   - Node.js ESM (Node ≥ 18)
  *   - Deno / Bun
  *   - Web Workers
- *
- * If `import.meta.url` is unavailable (CJS bundle or very old environment),
- * the function returns `null` and the caller should fall back to an explicit path.
  */
 export function resolveKernelUrl(): URL | null {
   try {
     // `import.meta.url` is always the URL of THIS compiled JS file.
     // `phantom_kernel.wasm` is emitted next to it by the build pipeline.
-    return new URL("./phantom_kernel.wasm", import.meta.url);
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    return new URL(/* @vite-ignore */ "./phantom_kernel.wasm", import.meta.url);
   } catch {
     return null;
   }
@@ -99,91 +97,32 @@ export function resolveKernelUrl(): URL | null {
 // ---------------------------------------------------------------------------
 
 /**
- * Loads raw bytes from a path/URL using whatever runtime API is available.
+ * Loads raw bytes from a URL using `globalThis.fetch`.
+ * Requires Node ≥ 18, any browser, Deno, or Bun.
  *
- * Resolution order:
- *   1. `globalThis.fetch`               — browsers, Node ≥ 18, Deno, Bun
- *   2. `node:fs/promises.readFile`      — Node < 18 (ESM dynamic import)
- *   3. Synchronous `require("fs")`      — Node < 18 (CJS fallback)
- *
- * If none of those are available the function throws a descriptive error that
- * tells the caller exactly how to provide the bytes themselves instead.
+ * To supply bytes manually (e.g. from disk in a build script):
+ *   import { readFile } from "node:fs/promises";
+ *   await configureWasm(await readFile("/path/to/phantom_kernel.wasm"));
  */
 export async function loadWasmBytes(
   source: string | URL,
 ): Promise<ArrayBuffer> {
-  // ── 1. fetch (browsers + Node ≥ 18 + Deno + Bun + React Native with fetch polyfill) ──
-  if (typeof globalThis.fetch === "function") {
-    const url = source instanceof URL ? source.href : source;
-    let response: Response;
-    try {
-      response = await globalThis.fetch(url);
-    } catch (err: unknown) {
-      throw new Error(
-        `configureWasm: fetch("${url}") failed — ${String(err)}.\n` +
-          `Pass an ArrayBuffer instead: await configureWasm(await fs.readFile(path));`,
-        { cause: err },
-      );
-    }
-    if (!response.ok) {
-      throw new Error(
-        `configureWasm: fetch("${url}") returned HTTP ${response.status}.\n` +
-          `Pass an ArrayBuffer instead: await configureWasm(await fs.readFile(path));`,
-      );
-    }
-    return response.arrayBuffer();
+  const url = source instanceof URL ? source.href : source;
+  let response: Response;
+  try {
+    response = await globalThis.fetch(url);
+  } catch (err: unknown) {
+    throw new Error(
+      `configureWasm: fetch("${url}") failed — ${String(err)}.\n` +
+        `Pass an ArrayBuffer instead: await configureWasm(await readFile(path));`,
+      { cause: err },
+    );
   }
-
-  // ── 2. Node < 18 ESM: dynamic import of node:fs/promises ──
-  const pathStr = source instanceof URL ? source.pathname : source;
-
-  if (
-    typeof process !== "undefined" &&
-    typeof process.versions?.node === "string"
-  ) {
-    // Try ESM-style dynamic import first (works in Node 12+ with --experimental-vm-modules)
-    try {
-      const fsPromises = (await import("node:fs/promises")) as {
-        readFile: (this: void, path: string) => Promise<Buffer>;
-      };
-      const buf = await fsPromises.readFile(pathStr);
-      return buf.buffer.slice(
-        buf.byteOffset,
-        buf.byteOffset + buf.byteLength,
-      ) as ArrayBuffer;
-    } catch {
-      // Fall through to synchronous fs for very old Node
-    }
-
-    // ── 3. Node synchronous fallback (Node < 12 or bundler limitation) ──
-    try {
-      const fsSync = (await import("fs")) as {
-        readFileSync: (this: void, path: string) => Buffer;
-      };
-      const buf = fsSync.readFileSync(pathStr);
-      return buf.buffer.slice(
-        buf.byteOffset,
-        buf.byteOffset + buf.byteLength,
-      ) as ArrayBuffer;
-    } catch {
-      // Fall through to descriptive error
-    }
+  if (!response.ok) {
+    throw new Error(
+      `configureWasm: fetch("${url}") returned HTTP ${response.status}.\n` +
+        `Pass an ArrayBuffer instead: await configureWasm(await readFile(path));`,
+    );
   }
-
-  // ── No loader found — tell the user exactly what to do ──
-  throw new Error(
-    `configureWasm: cannot load "${String(source)}" automatically in this environment.\n\n` +
-      `Read the file yourself and pass the bytes directly:\n\n` +
-      `  // Node.js\n` +
-      `  import { readFile } from "node:fs/promises";\n` +
-      `  await configureWasm(await readFile("/path/to/phantom_kernel.wasm"));\n\n` +
-      `  // React Native (react-native-fs)\n` +
-      `  import RNFS from "react-native-fs";\n` +
-      `  const b64 = await RNFS.readFile(path, "base64");\n` +
-      `  const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0)).buffer;\n` +
-      `  await configureWasm(bytes);\n\n` +
-      `  // Any environment\n` +
-      `  const bytes = await myCustomLoader(path);\n` +
-      `  await configureWasm(bytes);`,
-  );
+  return response.arrayBuffer();
 }
