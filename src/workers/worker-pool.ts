@@ -89,13 +89,23 @@ export class TileWorkerPool {
       const id = this.nextId;
       this.nextId += 1;
       this.inflight.set(id, { ...task, worker });
+
+      // Only transfer when the view owns its entire ArrayBuffer. Transferring
+      // the buffer behind a subarray (pooled tile buffers, packed frames)
+      // detaches memory the caller still owns and hands the worker the wrong
+      // byte range. Detach the exclusively-owned case, copy the shared one.
+      const rgba = task.payload.rgba;
+      const ownsBuffer =
+        rgba.byteOffset === 0 && rgba.byteLength === rgba.buffer.byteLength;
+      const outbound = ownsBuffer ? rgba : new Uint8Array(rgba);
+
       worker.postMessage(
         {
           id,
           filter: task.filter,
-          payload: task.payload,
+          payload: { ...task.payload, rgba: outbound },
         },
-        [task.payload.rgba.buffer],
+        [outbound.buffer],
       );
     }
   }

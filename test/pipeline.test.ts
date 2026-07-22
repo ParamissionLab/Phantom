@@ -110,6 +110,31 @@ describe("processRawImage", () => {
     expect(Array.from(output.data)).toEqual(new Array<number>(24).fill(7));
   });
 
+  it('honors a custom processor even when it uses the "cpu" id', async () => {
+    const tileProcessor: TileProcessor = {
+      id: "cpu",
+      processTile(payload) {
+        return {
+          descriptor: payload.descriptor,
+          rgba: new Uint8Array(
+            payload.descriptor.output.width *
+              payload.descriptor.output.height *
+              4,
+          ).fill(7),
+        };
+      },
+    };
+
+    const output = await processRawImage(makeImage(), {
+      tileSize: 3,
+      overlap: 0,
+      filter: "identity",
+      tileProcessor,
+    });
+
+    expect(Array.from(output.data)).toEqual(new Array<number>(24).fill(7));
+  });
+
   it("rejects custom processor output with the wrong tile length", async () => {
     const tileProcessor: TileProcessor = {
       id: "broken-processor",
@@ -171,6 +196,76 @@ describe("processRawImage", () => {
     );
 
     expect(Array.from(output.data)).toEqual([237, 237, 237, 255]);
+  });
+
+  it("preserves processor and progress options across every pipeline stage", async () => {
+    const seenFilters: string[] = [];
+    const progress: number[] = [];
+    const tileProcessor: TileProcessor = {
+      id: "pipeline-processor",
+      processTile(payload, filter) {
+        seenFilters.push(filter);
+        return {
+          descriptor: payload.descriptor,
+          rgba: new Uint8Array(
+            payload.descriptor.output.width *
+              payload.descriptor.output.height *
+              4,
+          ).fill(seenFilters.length),
+        };
+      },
+    };
+
+    const output = await processRawImagePipeline(
+      makeImage(),
+      [
+        { filter: "invert", overlap: 0 },
+        { filter: "grayscale", overlap: 0 },
+      ],
+      {
+        tileSize: 3,
+        tileProcessor,
+        onProgress: ({ percent }) => progress.push(percent),
+      },
+    );
+
+    expect(seenFilters).toEqual(["invert", "grayscale"]);
+    expect(progress).toEqual([100, 100]);
+    expect(Array.from(output.data)).toEqual(new Array<number>(24).fill(2));
+  });
+
+  it("rejects malformed pipeline input before processing", async () => {
+    await expect(
+      processRawImagePipeline(
+        { width: 1, height: 1, data: Uint8Array.of(1, 2, 3) },
+        [
+          { filter: "invert", overlap: 0 },
+          { filter: "grayscale", overlap: 0 },
+        ],
+      ),
+    ).rejects.toThrow(/length mismatch/i);
+  });
+
+  it("stops an aborted pipeline before its first stage", async () => {
+    const controller = new AbortController();
+    const processTile = vi.fn<TileProcessor["processTile"]>();
+    controller.abort();
+
+    await expect(
+      processRawImagePipeline(
+        makeImage(),
+        [
+          { filter: "invert", overlap: 0 },
+          { filter: "grayscale", overlap: 0 },
+        ],
+        {
+          tileSize: 3,
+          signal: controller.signal,
+          tileProcessor: { id: "aborted", processTile },
+        },
+      ),
+    ).rejects.toThrow(/abort/i);
+    expect(processTile).not.toHaveBeenCalled();
   });
 
   it("rejects filters when the requested overlap is too small", async () => {

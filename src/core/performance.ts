@@ -48,13 +48,20 @@ export function chooseTileSize(budget: MemoryBudget): number {
 
   const minTileSize = budget.minTileSize ?? DEFAULT_MIN_TILE_SIZE;
   const maxTileSize = budget.maxTileSize ?? DEFAULT_MAX_TILE_SIZE;
+  if (minTileSize > maxTileSize) {
+    throw new PhantomError("minTileSize must not exceed maxTileSize.");
+  }
   let tileSize = maxTileSize;
 
-  while (
-    tileSize > minTileSize &&
-    estimateTileScratchBytes(tileSize, budget.overlap) > budget.maxBytes
-  ) {
-    tileSize = Math.floor(tileSize / 2);
+  while (estimateTileScratchBytes(tileSize, budget.overlap) > budget.maxBytes) {
+    const halved = Math.floor(tileSize / 2);
+    // Halving can undershoot minTileSize when it is not a power of two; clamp
+    // instead of returning a tile smaller than the caller's floor.
+    if (halved < minTileSize) {
+      tileSize = minTileSize;
+      break;
+    }
+    tileSize = halved;
   }
 
   if (estimateTileScratchBytes(tileSize, budget.overlap) > budget.maxBytes) {
@@ -105,11 +112,17 @@ export function getProcessingPlan(
     tileSize: options.tileSize,
     overlap: options.overlap,
   });
-  const peakTileBytes = Math.max(
-    ...tiles.map(
-      (tile) => rectByteLength(tile.input) + rectByteLength(tile.output),
-    ),
-  );
+  // Reduce with a loop, not Math.max(...spread): a gigapixel plan produces
+  // hundreds of thousands of tiles and spreading them as call arguments
+  // overflows the JS argument limit (RangeError) — exactly the workload this
+  // library targets.
+  let peakTileBytes = 0;
+  for (let i = 0; i < tiles.length; i += 1) {
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    const tile = tiles[i]!;
+    const bytes = rectByteLength(tile.input) + rectByteLength(tile.output);
+    if (bytes > peakTileBytes) peakTileBytes = bytes;
+  }
   const workerLanes = Math.max(1, options.workerLanes ?? 1);
   const fullFrameBytes = estimateRgbaBytes(dimensions);
   const estimatedScratchBytes = peakTileBytes * workerLanes;

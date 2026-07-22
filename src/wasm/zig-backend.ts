@@ -18,13 +18,17 @@ const PAGE_SIZE_BYTES = 64 * 1024;
 export async function instantiateWasmBackend(
   source: BufferSource | WebAssembly.Module,
 ): Promise<WasmKernelBackend> {
-  const instance =
-    source instanceof WebAssembly.Module
-      ? await WebAssembly.instantiate(source, {})
-      : await WebAssembly.instantiate(source, {});
+  // instantiate() resolves to an Instance for a compiled Module and to a
+  // {module, instance} pair for raw bytes. The branch exists so each overload
+  // is selected with its real argument type; the result is then normalized.
+  const instantiated = await (source instanceof WebAssembly.Module
+    ? WebAssembly.instantiate(source, {})
+    : WebAssembly.instantiate(source, {}));
 
   const exports = (
-    "instance" in instance ? instance.instance.exports : instance.exports
+    "instance" in instantiated
+      ? instantiated.instance.exports
+      : instantiated.exports
   ) as WasmKernelExports;
   validateExports(exports);
   return new ZigWasmBackend(exports);

@@ -34,6 +34,7 @@ import {
   type ProcessProgress,
   type RawRgbaImage,
   type Rect,
+  type TileDescriptor,
   type TileProcessor,
 } from "./types.js";
 import { adjustRawImage, type ImageAdjustOptions } from "./adjust.js";
@@ -49,9 +50,10 @@ import {
 } from "./histogram.js";
 import {
   registerProcessor,
-  getRegisteredProcessor,
   getPendingInit,
   setPendingInit,
+  isWasmConfigured,
+  markWasmConfigured,
   loadWasmBytes,
   resolveKernelUrl,
 } from "./wasm-registry.js";
@@ -60,6 +62,8 @@ export interface FilterOptions {
   readonly tileSize?: number;
   readonly signal?: AbortSignal;
   readonly tileProcessor?: TileProcessor;
+  /** Receives each completed tile; multi-filter calls report every stage. */
+  readonly onTile?: (tile: TileDescriptor) => void;
   readonly onProgress?: (progress: ProcessProgress) => void;
 }
 
@@ -289,6 +293,7 @@ export async function configureWasm(
 
     const backend = await instantiateWasmBackend(bytes);
     registerProcessor(createWasmTileProcessor(backend));
+    markWasmConfigured();
   })();
 
   // Store so concurrent callers can join.
@@ -297,19 +302,19 @@ export async function configureWasm(
   try {
     await init;
   } finally {
-    // Whether it succeeded or failed, clear the pending slot so a retry is
-    // possible without calling configureWasm(null) first.
-    if (!isWasmReady()) {
-      setPendingInit(null);
-    }
+    // Whether it succeeded or failed, clear the pending slot: on failure so a
+    // retry is possible without configureWasm(null), on success so the registry
+    // does not retain a settled promise for the process lifetime.
+    setPendingInit(null);
   }
 }
 
 /**
  * Returns true when a WASM backend has been loaded via `configureWasm()`.
+ * A processor installed directly through `registerProcessor()` does not count.
  */
 export function isWasmReady(): boolean {
-  return getRegisteredProcessor() !== null;
+  return isWasmConfigured();
 }
 
 /**
@@ -452,6 +457,7 @@ function toProcessOptions(
     ...(options.tileProcessor === undefined
       ? {}
       : { tileProcessor: options.tileProcessor }),
+    ...(options.onTile === undefined ? {} : { onTile: options.onTile }),
     ...(options.onProgress === undefined
       ? {}
       : { onProgress: options.onProgress }),

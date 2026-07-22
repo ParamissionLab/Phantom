@@ -23,6 +23,12 @@ import type { TileProcessor } from "./types.js";
 
 let activeProcessor: TileProcessor | null = null;
 
+// Tracks whether the ACTIVE processor came from configureWasm(), as opposed to
+// an arbitrary processor installed through registerProcessor(). Without this
+// distinction a user-registered GPU/worker processor would make isWasmReady()
+// report true and silently turn configureWasm() into a no-op.
+let wasmConfigured = false;
+
 // Dedup concurrent configureWasm() calls: if two callers await configureWasm()
 // at the same time, the second one reuses the first one's in-flight promise
 // instead of starting a second WebAssembly.instantiate().
@@ -45,10 +51,26 @@ export function getRegisteredProcessor(): TileProcessor | null {
  */
 export function registerProcessor(processor: TileProcessor | null): void {
   activeProcessor = processor;
+  // Any processor installed through this entry point is not a configureWasm()
+  // backend until configureWasm() explicitly says so.
+  wasmConfigured = false;
   // Clear any pending init so a fresh configureWasm() call after reset works.
   if (processor === null) {
     pendingInit = null;
   }
+}
+
+/**
+ * Marks the currently registered processor as the configureWasm()-loaded WASM
+ * backend. Called by configureWasm() immediately after registerProcessor().
+ */
+export function markWasmConfigured(): void {
+  wasmConfigured = activeProcessor !== null;
+}
+
+/** True only when the active processor was installed by configureWasm(). */
+export function isWasmConfigured(): boolean {
+  return wasmConfigured && activeProcessor !== null;
 }
 
 /**
@@ -71,9 +93,11 @@ export function setPendingInit(p: Promise<void> | null): void {
 // ---------------------------------------------------------------------------
 
 /**
- * Returns a `URL` that points to `phantom_kernel.wasm` sitting next to this
- * JS module — the same directory that bundlers (Vite, webpack, Rollup, esbuild)
- * emit the file into when you run `npm run build`.
+ * Returns a `URL` that points to `phantom_kernel.wasm` inside the published
+ * package. This module compiles to `dist/core/wasm-registry.js`, while
+ * `npm run build:wasm` emits the kernel to `dist/phantom_kernel.wasm` — one
+ * directory up. The path is therefore resolved relative to the parent of this
+ * module, not its own directory.
  *
  * Works in:
  *   - Browsers served by any bundler (Vite / webpack / Rollup / esbuild)
@@ -87,12 +111,9 @@ export function resolveKernelUrl(): URL | null {
     // Rollup, esbuild, Parcel …) skip static-asset analysis on this string.
     // Bundlers only recognize the `new URL("<literal>", import.meta.url)`
     // pattern when the first argument is a bare string literal; a "+" expression
-    // is always treated as runtime-dynamic and left untouched — no bundler-
-    //
-    // `phantom_kernel.wasm` is emitted next to this JS file by the build
-    // pipeline and resolved at runtime via `import.meta.url`.
+    // is always treated as runtime-dynamic and left untouched.
     const wasmFile = "phantom_kernel" + ".wasm";
-    return new URL("./" + wasmFile, import.meta.url);
+    return new URL("../" + wasmFile, import.meta.url);
   } catch {
     return null;
   }

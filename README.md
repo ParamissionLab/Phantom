@@ -383,7 +383,13 @@ Options:
 | `tileSize`      | Tile edge length in pixels                                               |
 | `signal`        | Abort signal checked between tiles                                       |
 | `tileProcessor` | Custom CPU, worker, GPU, WASM, or native tile backend                    |
+| `onTile`        | Receives each completed tile; chained filters report each filter stage    |
 | `onProgress`    | Receives completed tile count, total tiles, percent, and tile descriptor |
+
+For `applyFilters()` and `processRawImagePipeline()`, `tileProcessor`,
+`signal`, `onTile`, and `onProgress` apply to every filter stage. This keeps
+accelerated processing, progress UI, and cancellation consistent with a
+single-filter call.
 
 ### Low-Level Processing
 

@@ -5,6 +5,22 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.4] - 2026-07-021
+
+### Added
+
+- Added `onTile` to high-level filter options, giving `applyFilter()`,
+  `applyFilters()`, and edit pipelines a lightweight per-tile callback.
+
+### Fixed
+
+- Chained filter pipelines now honor custom and registered tile processors,
+  progress callbacks, and cancellation for every filter stage.
+- Chained pipelines validate RGBA input before processing.
+- Custom tile processors with an id of `"cpu"` are no longer replaced by the
+  built-in CPU processor.
+- The synchronous CPU path always returns pooled buffers when a callback throws.
+
 ## [1.0.3] - 2026-07-08
 
 ### Added

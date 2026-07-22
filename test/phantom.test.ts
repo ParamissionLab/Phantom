@@ -86,6 +86,7 @@ describe("default phantom API", () => {
   });
 
   it("applies multiple filters with safe defaults", async () => {
+    const seenTiles: number[] = [];
     const output = await applyFilters(
       {
         width: 1,
@@ -93,10 +94,14 @@ describe("default phantom API", () => {
         data: Uint8Array.from([10, 20, 30, 255]),
       },
       ["grayscale", "invert"],
-      { tileSize: 1 },
+      {
+        tileSize: 1,
+        onTile: (tile) => seenTiles.push(tile.index),
+      },
     );
 
     expect(Array.from(output.data)).toEqual([237, 237, 237, 255]);
+    expect(seenTiles).toEqual([0, 0]);
   });
 
   it("passes custom tile processors through the simple filter helpers", async () => {
