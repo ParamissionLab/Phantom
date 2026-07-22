@@ -1,6 +1,6 @@
 {
   "name": "@paramission-lab/phantom",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Blazing-fast RGBA image processing for massive resolutions — tiles, WebGPU, WASM, and AI mask removal, zero full-frame allocations.",
   "author": {
     "name": "Paramission Lab",
@@ -79,7 +79,7 @@
     "bench": "vitest bench",
     "lint": "eslint .",
     "format": "prettier --write \"**/*.{ts,js,json,md,yml,yaml}\"",
-    "ci": "npm run typecheck && npm run lint && npm test && npm run build && npm run build:wasm"
+    "ci": "npm run typecheck && npm run lint && npm run build && npm run build:wasm && npm test"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

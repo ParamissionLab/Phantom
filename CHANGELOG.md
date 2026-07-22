@@ -5,6 +5,39 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.5] - 2026-07-22
+
+### Fixed
+
+- `useWasm()` / `resolveKernelUrl()` now resolve `phantom_kernel.wasm` one
+  directory above the compiled core module, matching the published `dist`
+  layout. The previous path pointed at `dist/core/` and always 404'd.
+- `getProcessingPlan()` no longer throws `RangeError` on gigapixel images.
+  Peak-tile computation was spreading every tile into `Math.max(...)`, which
+  overflowed the argument limit for the large-image workloads this library
+  targets.
+- `chooseTileSize()` never returns a tile smaller than `minTileSize` and now
+  rejects a `minTileSize` greater than `maxTileSize`.
+- `TileWorkerPool` only transfers a tile buffer when the view owns its entire
+  `ArrayBuffer`; pooled/subarray-backed tiles are copied instead of detaching
+  memory the caller still holds.
+- `isWasmReady()` reports true only for a backend loaded through
+  `configureWasm()`, so a processor installed via `registerProcessor()` no
+  longer turns `configureWasm()` into a silent no-op.
+- `configureWasm()` always clears its in-flight init promise, on success as
+  well as failure.
+
+### Changed
+
+- `ci` script builds the TypeScript output and WASM kernel before running the
+  test suite, so tests can verify the real compiled artifact.
+
+### Tested
+
+- Added a real WASM integration suite that instantiates the compiled Zig kernel
+  and verifies invert/grayscale/alpha-mask correctness and `memory.grow()`
+  safety end-to-end, replacing fake-backend-only coverage.
+
 ## [1.0.4] - 2026-07-21
 
 ### Added
